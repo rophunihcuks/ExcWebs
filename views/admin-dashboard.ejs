@@ -219,6 +219,60 @@
       font-size: 0.75rem;
     }
 
+    /* Field hint (ID, scriptFile, dll) */
+    .field-hint {
+      display: block;
+      margin-top: 4px;
+      font-size: 0.75rem;
+      color: var(--text-muted, #9ca3c0);
+      line-height: 1.35;
+    }
+
+    .field-hint code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+      font-size: 0.75rem;
+    }
+
+    /* Raw link row (Private Raw Files) */
+    .raw-link-row {
+      margin-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .raw-link-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted, #9ca3c0);
+    }
+
+    .raw-link-main {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .raw-link-url {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+      background: rgba(15, 23, 42, 0.9);
+      color: var(--accent-alt, #3cffd0);
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+
+    .raw-link-url:hover {
+      border-color: var(--accent, #7bff3a);
+    }
+
     /* Breakpoints */
     @media (min-width: 640px) {
       .admin-search .search-row {
@@ -1120,6 +1174,10 @@
                   <label>
                     Script File
                     <input type="text" name="scriptFile" value="<%= script.scriptFile %>" />
+                    <span class="field-hint">
+                      Opsional, catatan internal nama file. Body script utama di
+                      <strong>Upload Script</strong> atau <strong>Script Body</strong>.
+                    </span>
                   </label>
 
                   <!-- Upload / paste body script (publish ke API loader) -->
@@ -1202,6 +1260,24 @@
                     </div>
                   </div>
 
+                  <!-- RAW LINK PREVIEW -->
+                  <div class="raw-link-row">
+                    <div class="raw-link-label">Raw link</div>
+                    <div class="raw-link-main">
+                      <a href="/<%= file.id %>.raw"
+                         target="_blank"
+                         class="raw-link-url"
+                         data-raw-path="/<%= file.id %>.raw">
+                        /<%= file.id %>.raw
+                      </a>
+                      <button type="button"
+                              class="chip chip-copy raw-link-copy"
+                              data-raw-path="/<%= file.id %>.raw">
+                        copy link
+                      </button>
+                    </div>
+                  </div>
+
                   <div class="row-cols">
                     <label>
                       Name / Label
@@ -1264,6 +1340,10 @@
             <label>
               ID (slug unik)
               <input type="text" name="id" placeholder="indo-ocean-dev-raw" required />
+              <span class="field-hint">
+                Akan menjadi link: <code>/[id].raw</code><br />
+                Contoh: <code>https://excc-webs.vercel.app/wakaka.raw</code> untuk ID <code>wakaka</code>.
+              </span>
             </label>
             <label>
               Name / Label
@@ -1309,6 +1389,9 @@
             <label>
               ID (slug)
               <input type="text" name="id" placeholder="indo-ocean" required />
+              <span class="field-hint">
+                ID dipakai di URL loader & analitik. Gunakan nama pendek, unik, tanpa spasi.
+              </span>
             </label>
             <label>
               Name
@@ -1348,6 +1431,10 @@
             <label>
               Script File
               <input type="text" name="scriptFile" placeholder="spear_fishing.lua" />
+              <span class="field-hint">
+                Opsional, nama file referensi. Body script akan diambil dari
+                <strong>Upload Script</strong> atau <strong>Script Body</strong>.
+              </span>
             </label>
             <label>
               Upload Script (.lua / .txt)
@@ -1386,6 +1473,57 @@
           btn.textContent = 'copy';
         }, 1200);
       }).catch(function () {});
+    }
+  });
+
+  // Copy full raw link (Private Raw Files)
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('.raw-link-copy');
+    if (!btn) return;
+    ev.preventDefault();
+
+    var path = btn.getAttribute('data-raw-path');
+    if (!path) return;
+    var fullUrl = window.location.origin + path;
+
+    var originalText = btn.textContent || 'copy link';
+
+    function setCopied() {
+      btn.classList.add('copied');
+      btn.textContent = 'copied';
+      setTimeout(function () {
+        btn.classList.remove('copied');
+        btn.textContent = originalText;
+      }, 1200);
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(fullUrl).then(function () {
+        setCopied();
+      }).catch(function () {
+        // fallback
+        var textarea = document.createElement('textarea');
+        textarea.value = fullUrl;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(textarea);
+        setCopied();
+      });
+    } else {
+      var textarea = document.createElement('textarea');
+      textarea.value = fullUrl;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(textarea);
+      setCopied();
     }
   });
 
