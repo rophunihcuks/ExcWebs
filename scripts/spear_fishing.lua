@@ -453,6 +453,58 @@ local function getMapAndServerInfo()
     return mapName, placeIdStr, serverIdStr
 end
 
+----------------------------------------------------------
+-- TRACKING SEMUA MAP YANG PERNAH DIKUNJUNGI (RUNTIME) 
+-- allMapList untuk dikirim ke API
+----------------------------------------------------------
+local AllMapVisitList = {}   -- key: placeId .. "::" .. mapName
+local AllMapVisitOrder = {}  -- urutan muncul
+local MAPLIST_MAX = 64       -- batas maksimum entri supaya tetap ringan
+
+local function registerCurrentMapVisit()
+    local mapName, placeIdStr, serverIdStr = getMapAndServerInfo()
+    local key = placeIdStr .. "::" .. mapName
+
+    local entry = AllMapVisitList[key]
+    if not entry then
+        entry = {
+            mapName     = mapName,
+            placeId     = placeIdStr,
+            firstSeenAt = os.time(),
+            visitCount  = 0,
+        }
+        AllMapVisitList[key] = entry
+        table.insert(AllMapVisitOrder, key)
+
+        -- jaga-jaga supaya list tidak membengkak
+        if #AllMapVisitOrder > MAPLIST_MAX then
+            local oldestKey = table.remove(AllMapVisitOrder, 1)
+            AllMapVisitList[oldestKey] = nil
+        end
+    end
+
+    entry.visitCount  = (entry.visitCount or 0) + 1
+    entry.lastServerId = serverIdStr
+    entry.lastSeenAt   = os.time()
+
+    return mapName, placeIdStr, serverIdStr
+end
+
+local function getAllMapListForPayload()
+    local result = {}
+    for _, key in ipairs(AllMapVisitOrder) do
+        local e = AllMapVisitList[key]
+        if e then
+            result[#result+1] = {
+                mapName   = e.mapName,
+                placeId   = e.placeId,
+                visitCount = e.visitCount or 1,
+            }
+        end
+    end
+    return result
+end
+
 -- INFO DISPLAY PLAYER
 local function getPlayerDisplayLine()
     local username = LocalPlayer and LocalPlayer.Name or "Unknown"
@@ -671,7 +723,7 @@ local function sendExecWebhook(keyToken, keyData)
     end)
 end
 
--- POST TRACKING KE API /api/exec (SERVER NODE.JS)
+-- POST TRACKING KE API /api/exec (SERVER NODE.JS) + MAP INFO
 local function sendExecTracking(keyToken, keyData)
     if not EXEC_API_URL or EXEC_API_URL == "" then return end
 
@@ -679,6 +731,10 @@ local function sendExecTracking(keyToken, keyData)
     local hwid = getClientHWID()
     local executorName = getExecutorName()
     local scriptId = SCRIPT_ID_OVERRIDE or tostring(game.PlaceId or "unknown")
+
+    -- Register map visit (update allMapList runtime)
+    local mapName, placeIdStr, serverIdStr = registerCurrentMapVisit()
+    local allMapListPayload = getAllMapListForPayload()
 
     local createdAtVal, expiresAtVal
     if keyData and type(keyData) == "table" and keyData.info then
@@ -688,16 +744,22 @@ local function sendExecTracking(keyToken, keyData)
     end
 
     local bodyTable = {
-        scriptId   = scriptId,
-        userId     = userIdStr,
-        username   = username,
-        displayName = displayName,
-        hwid       = hwid,
-        executorUse = executorName,
+        scriptId     = scriptId,
+        userId       = userIdStr,
+        username     = username,
+        displayName  = displayName,
+        hwid         = hwid,
+        executorUse  = executorName,
         executeCount = EXECUTE_COUNT,
-        key        = keyToken or _G.__ExHub_LastKeyToken or nil,
-        createdAt  = createdAtVal,
-        expiresAt  = expiresAtVal
+        key          = keyToken or _G.__ExHub_LastKeyToken or nil,
+        createdAt    = createdAtVal,
+        expiresAt    = expiresAtVal,
+
+        -- NEW: info map sekarang + list semua map (runtime)
+        mapName      = mapName,
+        placeId      = placeIdStr,
+        serverId     = serverIdStr,
+        allMapList   = allMapListPayload,
     }
 
     local headers = {
@@ -1380,7 +1442,7 @@ local function buildCoreUI()
         {Id="utilitas",       Label="Utility",          Order=2,  SourceType="url", Source="https://raw.githubusercontent.com/rophunihcuks/rophuexhub/refs/heads/main/2ExTab_Utilitas.lua"},
         {Id="spearfishmisc",   Label="SpearFish Misc",    Order=3, GameId=8741232785, SourceType="url", Source=SPEAR_URL_ACTIVE},
         {Id="spearfishfarms", Label="SpearFish Farm",   Order=4, GameId=8741232785, SourceType="url", Source="https://raw.githubusercontent.com/rophunihcuks/rophuexhub/refs/heads/main/4ExTab_SpearFishFarm.lua"},
-        --{Id="sellallfish", Label="Sell Fish",   Order=4, GameId=8741232785, SourceType="url", Source="https://raw.githubusercontent.com/rophunihcuks/rophuexhub/refs/heads/main/5ExTab_SellAllFish.lua"},
+        --{Id="sellallfish", Label="Sell Fish",   Order=5, GameId=8741232785, SourceType="url", Source="https://raw.githubusercontent.com/rophunihcuks/rophuexhub/refs/heads/main/5ExTab_SellAllFish.lua"},
     }
 
     local TabDefsById, TabSources, loadedTabs = {}, {}, {}
@@ -1466,6 +1528,68 @@ local function buildCoreUI()
         return f
     end
 
+    local function resetTabCache(reloadActive)
+        for k in pairs(TabSources) do TabSources[k]=nil end
+        for k in pairs(loadedTabs) do loadedTabs[k]=nil end
+        if reloadActive and activeTabId and TabDefsById[activeTabId] and tabFrames[activeTabId] then
+            loadedTabs[activeTabId]=nil
+            local function safeOpen()
+                local ok, err = pcall(function()
+                    local id = activeTabId
+                    local def = TabDefsById[id]
+                    local frame = tabFrames[id]
+                    if not (def and frame) then return end
+
+                    if NO_CACHE_TABS[id] then
+                        local hub = _G.AxaHub
+                        if hub and hub.TabCleanup and type(hub.TabCleanup[id])=="function" then
+                            local ok2,err2 = pcall(hub.TabCleanup[id])
+                            if not ok2 then
+                                notify(
+                                    "ExHubCore",
+                                    string.format(L("notif.tabcleanup.error"), tostring(id), tostring(err2))
+                                )
+                            end
+                            hub.TabCleanup[id] = nil
+                        end
+                        frame:ClearAllChildren()
+                        loadedTabs[id] = nil
+                    end
+
+                    if not loadedTabs[id] then
+                        local src = getTabSource(id, true)
+                        if not src then
+                            notify("ExHub", string.format(L("notif.tabsource.empty"), tostring(id)))
+                            return
+                        end
+
+                        frame:ClearAllChildren()
+                        loadedTabs[id] = true
+
+                        local env = {
+                            TAB_ID=id, TAB_FRAME=frame, CONTENT_HOLDER=contentHolder,
+                            AXA_TWEEN=tween,
+                            Players=Players, LocalPlayer=LocalPlayer, RunService=RunService,
+                            TweenService=TweenService, HttpService=HttpService,
+                            UserInputService=UserInputService, VirtualInputManager=VirtualInputManager,
+                            ContextActionService=ContextActionService, StarterGui=StarterGui,
+                            CoreGui=CoreGui, Camera=camera,
+                            SetActiveTab=setActiveTab,
+                        }
+                        setmetatable(env,{__index=getfenv()})
+                        runTabScript(src, env)
+                    end
+
+                    setActiveTab(id)
+                end)
+                if not ok then
+                    notify("ExHubCore", string.format(L("notif.opentab.failed"), tostring(err)))
+                end
+            end
+            safeOpen()
+        end
+    end
+
     local function openTab(id)
         local def, frame = TabDefsById[id], tabFrames[id]
         if not (def and frame) then
@@ -1514,15 +1638,6 @@ local function buildCoreUI()
         end
 
         setActiveTab(id)
-    end
-
-    local function resetTabCache(reloadActive)
-        for k in pairs(TabSources) do TabSources[k]=nil end
-        for k in pairs(loadedTabs) do loadedTabs[k]=nil end
-        if reloadActive and activeTabId and TabDefsById[activeTabId] and tabFrames[activeTabId] then
-            loadedTabs[activeTabId]=nil
-            openTab(activeTabId)
-        end
     end
 
     local function registerLazyTab(def)
