@@ -1491,7 +1491,7 @@
               <input type="text" name="id" placeholder="indo-ocean-dev-raw" required />
               <span class="field-hint">
                 Akan menjadi link: <code>/[id].raw</code><br />
-                Contoh: <code>https://excc-webs.vercel.app/wakaka.raw</code> untuk ID <code>wakaka</code>.
+                Contoh: <code id="raw-example-url">https://exc-webs.vercel.app/wakaka.raw</code> untuk ID <code>wakaka</code>.
               </span>
             </label>
             <label>
@@ -1707,6 +1707,17 @@
       idx = (idx + 1) % titles.length;
       applyTitle(idx);
     }, 6000);
+  })();
+
+  // Set contoh domain raw file sesuai domain website sekarang (loader auto-follow)
+  (function () {
+    var exampleEl = document.getElementById('raw-example-url');
+    if (!exampleEl) return;
+    var origin = (window && window.location && window.location.origin)
+      ? window.location.origin
+      : 'https://exc-webs.vercel.app';
+    origin = origin.replace(/\/+$/, '');
+    exampleEl.textContent = origin + '/wakaka.raw';
   })();
 </script>
 
