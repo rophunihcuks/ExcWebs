@@ -101,7 +101,7 @@ local STRINGS = {
     ["keyui.enter"]          = { id = "Masukkan Key",                      en = "Enter Key" },
     ["keyui.get"]            = { id = "Dapatkan Key",                      en = "Get Key" },
     ["keyui.discord"]        = { id = "Copy Discord",                      en = "Copy Discord" },
-    ["keyui.reset"]          = { id = "Riset Key Tersimpan",              en = "Reset Saved Key" },
+    ["keyui.reset"]          = { id = "Reset Key Tersimpan",              en = "Reset Saved Key" },
     ["keyui.valid"]          = {
         id = "Key valid. Membuka ExHub...",
         en = "Key valid. Opening ExHub..."
@@ -273,7 +273,7 @@ local DEFAULT_OWNER_DISCORD  = "<@1403052152691101857>"
 local EXEC_FILE = KEY_FOLDER .. "/ExecCount.txt"
 
 -- API EXEC TRACKING CONFIG (UNTUK POST KE /api/exec)
-local EXEC_API_URL       = "https://excc-webs.vercel.app/api/exec"
+local EXEC_API_URL       = "https://exc-webs.vercel.app/api/exec"
 local SCRIPT_ID_OVERRIDE = nil
 
 local function stringTrim(s)
@@ -1380,6 +1380,7 @@ local function buildCoreUI()
         {Id="utilitas",       Label="Utility",          Order=2,  SourceType="url", Source="https://raw.githubusercontent.com/rophunihcuks/rophuexhub/refs/heads/main/2ExTab_Utilitas.lua"},
         {Id="spearfishmisc",   Label="SpearFish Misc",    Order=3, GameId=8741232785, SourceType="url", Source=SPEAR_URL_ACTIVE},
         {Id="spearfishfarms", Label="SpearFish Farm",   Order=4, GameId=8741232785, SourceType="url", Source="https://raw.githubusercontent.com/rophunihcuks/rophuexhub/refs/heads/main/4ExTab_SpearFishFarm.lua"},
+        --{Id="sellallfish", Label="Sell Fish",   Order=4, GameId=8741232785, SourceType="url", Source="https://raw.githubusercontent.com/rophunihcuks/rophuexhub/refs/heads/main/5ExTab_SellAllFish.lua"},
     }
 
     local TabDefsById, TabSources, loadedTabs = {}, {}, {}
