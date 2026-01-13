@@ -261,7 +261,7 @@ local KEY_FILE           = KEY_FOLDER .. "/SavedKey.txt"
 local KEY_LINK_URL       = "https://work.ink/23P2/yabm2hs6"
 local KEY_API_TEMPLATE   = "https://work.ink/_api/v2/token/isValid/%s"
 local KEY_VALID_SOUND_ID = "rbxassetid://232127604"
-local KEY_DISCORD        = "https://discord.gg/JRKCcsKGqU"
+local KEY_DISCORD        = "https://discord.gg/exhb"
 
 -- DISCORD WEBHOOK CONFIG (DEFAULT, TANPA TOGGLE)
 local WEBHOOK_URL            = "https://discord.com/api/webhooks/1459827420952789044/eshKuUTPTIflZCzXOchW8sPEY-p72oEVkTpQgtGSXw1ygQy8P-CnRUuUVXQqe23UMrTk"
