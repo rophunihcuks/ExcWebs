@@ -9,12 +9,42 @@
 
   <!-- Admin Dashboard: Responsive Layout & UX Upgrade (mobile + desktop) -->
   <style>
+    /* ===========================
+       GLOBAL LAYOUT PROTECTION
+       (hindari scroll ke kanan)
+       =========================== */
+
+    /* REVISION: pastikan tidak ada overflow horizontal di halaman */
+    html,
+    body {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* REVISION: jaga body dark agar juga tidak overflow */
+    body.page-dark {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    /* REVISION: container admin full-width tapi tetap center */
+    .container.admin-dashboard {
+      width: 100%;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 16px 32px;
+      box-sizing: border-box;
+    }
+
     /* Root layout */
     .admin-dashboard {
       display: flex;
       flex-direction: column;
       gap: 24px;
-      padding-bottom: 32px;
+      padding-bottom: 0; /* padding sudah di container */
     }
 
     /* Section spacing */
@@ -89,8 +119,13 @@
     /* Table scroll + kompak di mobile */
     .table-wrapper {
       width: 100%;
+      max-width: 100%;        /* REVISION: jangan lebih lebar dari container */
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
+    }
+
+    .table.table-compact {
+      width: 100%;
     }
 
     .table.table-compact th,
@@ -288,7 +323,7 @@
       background: rgba(15, 23, 42, 0.9);
       border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
       color: var(--text-muted, #9ca3c0);
-      max-width: 180px;
+      max-width: 160px;          /* REVISION: sedikit lebih kecil */
       text-overflow: ellipsis;
       overflow: hidden;
       white-space: nowrap;
@@ -337,6 +372,22 @@
       }
       .admin-nav-tabs {
         justify-content: flex-end;
+      }
+    }
+
+    /* REVISION: optimasi tampilan tabel di layar kecil
+       - teks boleh wrap
+       - tetap tidak overflow ke kanan (body) */
+    @media (max-width: 767.98px) {
+      .table.table-compact th,
+      .table.table-compact td {
+        white-space: normal;
+        word-wrap: break-word;
+      }
+
+      .map-history-item {
+        max-width: 100%;
+        white-space: normal;
       }
     }
   </style>
