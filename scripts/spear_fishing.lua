@@ -273,8 +273,8 @@ local DEFAULT_OWNER_DISCORD  = "<@1403052152691101857>"
 local EXEC_FILE = KEY_FOLDER .. "/ExecCount.txt"
 
 -- API EXEC TRACKING CONFIG (UNTUK POST KE /api/exec)
-local BASE_API_URL     = "https://exc-webs.vercel.app/"
-local EXEC_API_URL     = BASE_API_URL .. "api/exec"
+local BASE_API_URL       = "https://exc-webs.vercel.app/"
+local EXEC_API_URL       = BASE_API_URL .. "api/exec"
 local SCRIPT_ID_OVERRIDE = nil
 
 local function stringTrim(s)
@@ -436,11 +436,19 @@ local function getClientHWID()
     return "Unknown"
 end
 
--- INFO MAP DAN SERVER
+-- INFO MAP DAN SERVER + GAMEID (REVISION)
 local function getMapAndServerInfo()
     local mapName = "Unknown"
     local placeIdStr = tostring(game.PlaceId or "0")
     local serverIdStr = tostring(game.JobId or "N/A")
+    local gameIdStr = "0"
+
+    local okGameId, gId = pcall(function()
+        return game.GameId
+    end)
+    if okGameId and gId then
+        gameIdStr = tostring(gId)
+    end
 
     local okInfo, info = pcall(function()
         return MarketplaceService:GetProductInfo(game.PlaceId)
@@ -451,26 +459,28 @@ local function getMapAndServerInfo()
         mapName = tostring(game.Name)
     end
 
-    return mapName, placeIdStr, serverIdStr
+    return mapName, placeIdStr, serverIdStr, gameIdStr
 end
 
 ----------------------------------------------------------
 -- TRACKING SEMUA MAP YANG PERNAH DIKUNJUNGI (RUNTIME) 
--- allMapList untuk dikirim ke API
+-- allMapList untuk dikirim ke API (client-side)
 ----------------------------------------------------------
-local AllMapVisitList = {}   -- key: placeId .. "::" .. mapName
+local AllMapVisitList = {}   -- key: gameId .. "::" .. placeId .. "::" .. mapName
 local AllMapVisitOrder = {}  -- urutan muncul
 local MAPLIST_MAX = 64       -- batas maksimum entri supaya tetap ringan
 
 local function registerCurrentMapVisit()
-    local mapName, placeIdStr, serverIdStr = getMapAndServerInfo()
-    local key = placeIdStr .. "::" .. mapName
+    -- REVISION (API v2): tambahkan gameId agar server bisa cluster per Universe
+    local mapName, placeIdStr, serverIdStr, gameIdStr = getMapAndServerInfo()
+    local key = (gameIdStr or "") .. "::" .. placeIdStr .. "::" .. mapName
 
     local entry = AllMapVisitList[key]
     if not entry then
         entry = {
             mapName     = mapName,
             placeId     = placeIdStr,
+            gameId      = gameIdStr,
             firstSeenAt = os.time(),
             visitCount  = 0,
         }
@@ -484,11 +494,12 @@ local function registerCurrentMapVisit()
         end
     end
 
-    entry.visitCount  = (entry.visitCount or 0) + 1
-    entry.lastServerId = serverIdStr
-    entry.lastSeenAt   = os.time()
+    entry.visitCount    = (entry.visitCount or 0) + 1
+    entry.lastServerId  = serverIdStr
+    entry.lastGameId    = gameIdStr
+    entry.lastSeenAt    = os.time()
 
-    return mapName, placeIdStr, serverIdStr
+    return mapName, placeIdStr, serverIdStr, gameIdStr
 end
 
 local function getAllMapListForPayload()
@@ -497,8 +508,9 @@ local function getAllMapListForPayload()
         local e = AllMapVisitList[key]
         if e then
             result[#result+1] = {
-                mapName   = e.mapName,
-                placeId   = e.placeId,
+                mapName    = e.mapName,
+                placeId    = e.placeId,
+                gameId     = e.gameId,
                 visitCount = e.visitCount or 1,
             }
         end
@@ -734,7 +746,7 @@ local function sendExecTracking(keyToken, keyData)
     local scriptId = SCRIPT_ID_OVERRIDE or tostring(game.PlaceId or "unknown")
 
     -- Register map visit (update allMapList runtime)
-    local mapName, placeIdStr, serverIdStr = registerCurrentMapVisit()
+    local mapName, placeIdStr, serverIdStr, gameIdStr = registerCurrentMapVisit()
     local allMapListPayload = getAllMapListForPayload()
 
     local createdAtVal, expiresAtVal
@@ -751,15 +763,18 @@ local function sendExecTracking(keyToken, keyData)
         displayName  = displayName,
         hwid         = hwid,
         executorUse  = executorName,
-        executeCount = EXECUTE_COUNT,
+        executeCount = EXECUTE_COUNT,                       -- server terima executeCount/clientExecuteCount
         key          = keyToken or _G.__ExHub_LastKeyToken or nil,
         createdAt    = createdAtVal,
         expiresAt    = expiresAtVal,
 
-        -- NEW: info map sekarang + list semua map (runtime)
+        -- INFO MAP SEKARANG
         mapName      = mapName,
         placeId      = placeIdStr,
         serverId     = serverIdStr,
+        gameId       = gameIdStr,                           -- REVISION (API v2)
+
+        -- LIST MAP RINGAN (server saat ini abaikan, tapi tetap dikirim)
         allMapList   = allMapListPayload,
     }
 
