@@ -693,7 +693,8 @@ async function buildAdminStats(period) {
         mapName: u.mapName || null,
         placeId: u.placeId || null,
         serverId: u.serverId || null,
-        allMapList: Array.isArray(u.allMapList) ? u.allMapList : null
+        gameId: u.gameId || null, // REVISION
+        allMapList: Array.isArray(u.allMapList) ? u.allMapList : [] // REVISION
       };
     });
 
@@ -784,10 +785,11 @@ async function buildAdminStats(period) {
         keyToken: u.keyToken || null,
         keyCreatedAt: u.keyCreatedAt || null,
         keyExpiresAt: u.keyExpiresAt || null,
-        mapName: u.mapName || null,
-        placeId: u.placeId || null,
-        serverId: u.serverId || null,
-        allMapList: Array.isArray(u.allMapList) ? u.allMapList : null
+        mapName: u.mapName || null,           // REVISION
+        placeId: u.placeId || null,           // REVISION
+        serverId: u.serverId || null,         // REVISION
+        gameId: u.gameId || null,             // REVISION
+        allMapList: Array.isArray(u.allMapList) ? u.allMapList : [] // REVISION
       };
     });
 
@@ -1042,10 +1044,107 @@ app.get('/api/script/:id', async (req, res) => {
 // ===================================================================
 
 /**
+ * Helper untuk mengisi / mendeduplikasi riwayat map (allMapList)
+ * - Tidak ada duplikasi per kombinasi (gameId, placeId, mapName)
+ * - Menyimpan daftar unik serverIds per map
+ * - serverId di-set ke server terakhir (kompatibilitas UI lama)
+ */
+// REVISION: helper baru
+function upsertMapHistory(entry, opts) {
+  if (!entry || !opts) return;
+
+  const mapName = opts.mapName || null;
+  const placeIdRaw = opts.placeId;
+  const gameIdRaw = opts.gameId;
+  const serverIdRaw = opts.serverId;
+
+  const placeId =
+    placeIdRaw !== undefined && placeIdRaw !== null && placeIdRaw !== ''
+      ? String(placeIdRaw)
+      : null;
+  const gameId =
+    gameIdRaw !== undefined && gameIdRaw !== null && gameIdRaw !== ''
+      ? String(gameIdRaw)
+      : null;
+  const serverId =
+    serverIdRaw !== undefined && serverIdRaw !== null && serverIdRaw !== ''
+      ? String(serverIdRaw)
+      : null;
+
+  if (!mapName && !placeId && !gameId && !serverId) return;
+
+  const existing = Array.isArray(entry.allMapList) ? entry.allMapList : [];
+  const rawList = existing.slice();
+
+  // Masukkan record baru ke rawList, supaya digabung dengan yang lama
+  rawList.push({
+    mapName,
+    placeId,
+    gameId,
+    serverId
+  });
+
+  const mapByKey = new Map();
+
+  rawList.forEach((m) => {
+    if (!m) return;
+
+    const mName = m.mapName || null;
+    const pId =
+      m.placeId !== undefined && m.placeId !== null && m.placeId !== ''
+        ? String(m.placeId)
+        : null;
+    const gId =
+      m.gameId !== undefined && m.gameId !== null && m.gameId !== ''
+        ? String(m.gameId)
+        : null;
+
+    if (!mName && !pId && !gId) return;
+
+    const key = `${gId || ''}|${pId || ''}|${mName || ''}`;
+
+    let target = mapByKey.get(key);
+    if (!target) {
+      target = {
+        mapName: mName,
+        placeId: pId,
+        gameId: gId,
+        serverIds: [],
+        serverId: null
+      };
+      mapByKey.set(key, target);
+    }
+
+    const tmpServerIds = [];
+
+    if (Array.isArray(m.serverIds)) {
+      m.serverIds.forEach((sid) => {
+        if (sid !== undefined && sid !== null && sid !== '') {
+          tmpServerIds.push(String(sid));
+        }
+      });
+    }
+
+    if (m.serverId !== undefined && m.serverId !== null && m.serverId !== '') {
+      tmpServerIds.push(String(m.serverId));
+    }
+
+    tmpServerIds.forEach((sid) => {
+      if (!target.serverIds.includes(sid)) {
+        target.serverIds.push(sid);
+      }
+    });
+
+    if (target.serverIds.length) {
+      target.serverId = target.serverIds[target.serverIds.length - 1];
+    }
+  });
+
+  entry.allMapList = Array.from(mapByKey.values());
+}
+
+/**
  * Endpoint yang dipanggil dari loader / script Roblox untuk melaporkan eksekusi.
- * Sekarang mendukung:
- * - mapName, placeId, serverId (info eksekusi terakhir)
- * - allMapList (array histori map yang pernah dipakai user+hwid untuk scriptId tersebut)
  */
 app.post('/api/exec', async (req, res) => {
   try {
@@ -1065,7 +1164,7 @@ app.post('/api/exec', async (req, res) => {
       mapName,
       placeId,
       serverId,
-      allMapList
+      gameId // REVISION: terima gameId dari body
     } = req.body || {};
 
     if (!scriptId || !userId || !hwid) {
@@ -1103,74 +1202,6 @@ app.post('/api/exec', async (req, res) => {
       req.socket.remoteAddress ||
       'unknown';
 
-    // normalisasi map info sekarang
-    const normalizedPlaceId =
-      placeId !== undefined && placeId !== null ? String(placeId) : null;
-    const normalizedServerId =
-      serverId !== undefined && serverId !== null ? String(serverId) : null;
-
-    const currentMapInfo =
-      mapName || normalizedPlaceId || normalizedServerId
-        ? {
-            mapName: mapName || '',
-            placeId: normalizedPlaceId,
-            serverId: normalizedServerId
-          }
-        : null;
-
-    // helper merge allMapList lama + kiriman baru + map sekarang
-    function mergeAllMapList(existing, clientList, currentInfo) {
-      const result = Array.isArray(existing) ? [...existing] : [];
-
-      const pushIfNew = (m) => {
-        if (!m || typeof m !== 'object') return;
-        const name = String(m.mapName || m.name || '').trim();
-        const pid =
-          m.placeId !== undefined && m.placeId !== null
-            ? String(m.placeId)
-            : null;
-        const sid =
-          m.serverId !== undefined && m.serverId !== null
-            ? String(m.serverId)
-            : null;
-
-        // kalau semuanya kosong, skip
-        if (!name && !pid && !sid) return;
-
-        const already = result.find((x) => {
-          const xName = String(x.mapName || x.name || '').trim();
-          const xPid =
-            x.placeId !== undefined && x.placeId !== null
-              ? String(x.placeId)
-              : null;
-          const xSid =
-            x.serverId !== undefined && x.serverId !== null
-              ? String(x.serverId)
-              : null;
-
-          return xName === name && xPid === pid && xSid === sid;
-        });
-
-        if (!already) {
-          result.push({
-            mapName: name,
-            placeId: pid,
-            serverId: sid
-          });
-        }
-      };
-
-      if (Array.isArray(clientList)) {
-        clientList.forEach((m) => pushIfNew(m));
-      }
-
-      if (currentInfo) {
-        pushIfNew(currentInfo);
-      }
-
-      return result;
-    }
-
     let execUsers = await loadExecUsers();
     const compositeKey = `${String(scriptId)}:${String(userId)}:${String(
       hwid
@@ -1180,12 +1211,6 @@ app.post('/api/exec', async (req, res) => {
     let entry = execUsers.find((u) => u.key === compositeKey);
 
     if (!entry) {
-      const mergedAllMap = mergeAllMapList(
-        null,
-        Array.isArray(allMapList) ? allMapList : null,
-        currentMapInfo
-      );
-
       entry = {
         key: compositeKey,
         scriptId: String(scriptId),
@@ -1203,10 +1228,15 @@ app.post('/api/exec', async (req, res) => {
         lastIp: ip,
         totalExecutes: 1,
         mapName: mapName || null,
-        placeId: normalizedPlaceId,
-        serverId: normalizedServerId,
-        allMapList: mergedAllMap
+        placeId: placeId !== undefined && placeId !== null ? String(placeId) : null,
+        serverId: serverId || null,
+        gameId: gameId !== undefined && gameId !== null ? String(gameId) : null,
+        allMapList: [] // REVISION: init
       };
+
+      // REVISION: isi riwayat map pertama
+      upsertMapHistory(entry, { mapName, placeId, serverId, gameId });
+
       execUsers.push(entry);
     } else {
       // Update info terbaru
@@ -1236,22 +1266,22 @@ app.post('/api/exec', async (req, res) => {
         entry.keyExpiresAt = expiresAtStr;
       }
 
+      // last map / place / server / gameId
       if (mapName) {
         entry.mapName = mapName;
       }
-      if (normalizedPlaceId != null) {
-        entry.placeId = normalizedPlaceId;
+      if (placeId !== undefined && placeId !== null) {
+        entry.placeId = String(placeId);
       }
-      if (normalizedServerId != null) {
-        entry.serverId = normalizedServerId;
+      if (serverId) {
+        entry.serverId = serverId;
+      }
+      if (gameId !== undefined && gameId !== null) {
+        entry.gameId = String(gameId);
       }
 
-      // merge histori allMapList
-      entry.allMapList = mergeAllMapList(
-        entry.allMapList,
-        Array.isArray(allMapList) ? allMapList : null,
-        currentMapInfo
-      );
+      // REVISION: update riwayat map tanpa duplikasi
+      upsertMapHistory(entry, { mapName, placeId, serverId, gameId });
     }
 
     await saveExecUsers(execUsers);
@@ -1270,9 +1300,9 @@ app.post('/api/exec', async (req, res) => {
         createdAt: createdAtStr,
         expiresAt: expiresAtStr,
         mapName,
-        placeId: normalizedPlaceId,
-        serverId: normalizedServerId,
-        allMapList: Array.isArray(entry.allMapList) ? entry.allMapList : null
+        placeId,
+        serverId,
+        gameId // REVISION: ikut dikembalikan
       }
     });
   } catch (err) {
