@@ -21,8 +21,9 @@
             <p class="key-admin-subtitle admin-key-subtitle">
               Monitor IP &amp; tokens dari sistem <strong>Generate Key</strong>.
               Anda dapat menghapus semua token untuk 1 IP, menghapus token tertentu,
-              mengubah <code>createdAt</code> / <code>expiresAt</code> secara manual,
-              dan memperpanjang masa expired token dengan tombol <strong>Renew</strong>.
+              mengubah <code>createdAt</code> secara manual,
+              dan mengatur <code>time left (HH:MM:SS)</code> untuk expired token.
+              Semua waktu ditampilkan dalam zona <strong>WITA</strong> dan <strong>WIB</strong>.
             </p>
 
             <div class="key-admin-pill-row">
@@ -148,6 +149,8 @@
               <p class="card-description">
                 Daftar IP yang pernah mendapatkan key. Klik
                 <strong>Manage</strong> untuk lihat detail &amp; tokens IP tersebut.
+                Waktu terakhir dibuat / expired ditampilkan sebagai
+                <strong>WITA</strong> dan <strong>WIB</strong>.
               </p>
             </div>
           </div>
@@ -175,12 +178,27 @@
                       </td>
                       <td class="table-main-text"><%= row.totalKeys || 0 %></td>
                       <td class="table-main-text"><%= row.activeKeys || 0 %></td>
+
+                      <!-- LAST CREATED: WITA / WIB -->
                       <td class="table-main-text">
-                        <div><%= row.lastCreatedAt || '-' %></div>
+                        <% if (row.lastCreatedAtWITA || row.lastCreatedAtWIB) { %>
+                          <div><%= row.lastCreatedAtWITA || '-' %></div>
+                          <div class="table-sub-text"><%= row.lastCreatedAtWIB || '' %></div>
+                        <% } else { %>
+                          <div><%= row.lastCreatedAt || '-' %></div>
+                        <% } %>
                       </td>
+
+                      <!-- LAST EXPIRES: WITA / WIB -->
                       <td class="table-main-text">
-                        <div><%= row.lastExpiresAt || '-' %></div>
+                        <% if (row.lastExpiresAtWITA || row.lastExpiresAtWIB) { %>
+                          <div><%= row.lastExpiresAtWITA || '-' %></div>
+                          <div class="table-sub-text"><%= row.lastExpiresAtWIB || '' %></div>
+                        <% } else { %>
+                          <div><%= row.lastExpiresAt || '-' %></div>
+                        <% } %>
                       </td>
+
                       <td class="key-cell-actions">
                         <a
                           href="/admin/keys?ip=<%= encodeURIComponent(row.ip) %>"
@@ -218,9 +236,11 @@
               </h2>
               <p class="card-description">
                 Lihat semua token untuk IP tertentu, ubah
-                <code>createdAt</code> / <code>expiresAt</code>,
-                hapus token yang tidak diinginkan,
-                dan perpanjang masa aktif token via tombol <strong>Renew</strong>.
+                <code>createdAt</code>,
+                atur <code>time left (HH:MM:SS)</code> untuk expired,
+                hapus token, dan perpanjang masa aktif token via tombol
+                <strong>Renew</strong>.
+                Waktu otomatis sinkron ke zona <strong>WITA</strong> &amp; <strong>WIB</strong>.
               </p>
             </div>
 
@@ -297,13 +317,14 @@
                           <input type="hidden" name="token" value="<%= k.token %>" />
                           <input type="hidden" name="ip" value="<%= selectedIp %>" />
 
+                          <!-- CREATED AT (ABSOLUTE) -->
                           <div class="admin-key-field">
-                            <div class="table-sub-text">createdAt</div>
+                            <div class="table-sub-text">createdAt (ISO / timestamp)</div>
                             <input
                               type="text"
                               name="createdAt"
                               class="key-input"
-                              value="<%= k.createdAt %>"
+                              value="<%= k.createdAt || '' %>"
                               placeholder="ISO or timestamp"
                               autocomplete="off"
                               style="margin-top:4px; max-width:260px;"
@@ -313,17 +334,26 @@
                             </div>
                           </div>
 
+                          <!-- EXPIRES TTL (RELATIVE) -->
                           <div class="admin-key-field" style="margin-top:8px;">
-                            <div class="table-sub-text">expiresAt</div>
+                            <div class="table-sub-text">time left (HH:MM:SS)</div>
                             <input
                               type="text"
-                              name="expiresAt"
+                              name="expiresTtl"
                               class="key-input"
-                              value="<%= k.expiresAt %>"
-                              placeholder="ISO / timestamp / kosong = auto"
+                              value="<%= k.ttlInput || '' %>"
+                              placeholder="HH:MM:SS (kosongkan = tidak diubah)"
                               autocomplete="off"
-                              style="margin-top:4px; max-width:260px;"
+                              style="margin-top:4px; max-width:160px;"
                             />
+                            <div class="table-sub-text">
+                              Current: <%= k.timeLeftLabel || '-' %>
+                            </div>
+                          </div>
+
+                          <!-- EXPIRES LABEL (ABSOLUTE WITA / WIB) -->
+                          <div class="admin-key-field" style="margin-top:8px;">
+                            <div class="table-sub-text">expiresAt (WITA / WIB)</div>
                             <div class="table-sub-text">
                               <%= k.expiresAtLabel || '-' %>
                             </div>
@@ -362,7 +392,7 @@
 
                       <!-- ACTIONS -->
                       <td class="key-cell-actions">
-                        <!-- RENEW: perpanjang masa expired key (gunakan defaultKeyHours di server) -->
+                        <!-- RENEW -->
                         <form
                           action="/admin/keys/renew-key"
                           method="POST"
@@ -380,7 +410,7 @@
                           </button>
                         </form>
 
-                        <!-- DELETE: hapus key -->
+                        <!-- DELETE -->
                         <form
                           action="/admin/keys/delete-key"
                           method="POST"
