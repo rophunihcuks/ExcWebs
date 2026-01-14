@@ -61,8 +61,21 @@
           var newKeyAction = (typeof keyAction !== 'undefined' && keyAction) ? keyAction : '/getkey/new';
           var canGenerate  = (typeof allowGenerate === 'boolean') ? allowGenerate : true;
 
-          // ======== RENEW ACTION (pakai endpoint /getkey/renew) ========
+          // ======== RENEW ACTION ========
           var renewAction  = (typeof renewAction !== 'undefined' && renewAction) ? renewAction : '/getkey/renew';
+
+          // ======== FLAG: APAKAH ADA KEY EXPIRED (untuk info/gate tambahan jika perlu) ========
+          var hasExpiredKey = false;
+          if (Array.isArray(keys)) {
+            for (var i = 0; i < keys.length; i++) {
+              var ks = keys[i];
+              var st = (ks && ks.status) ? ks.status : 'Active';
+              if (st === 'Expired') {
+                hasExpiredKey = true;
+                break;
+              }
+            }
+          }
         %>
 
         <div class="key-header-progress">
@@ -226,9 +239,16 @@
                         ? 'badge-muted'
                         : 'badge-danger';
 
-                    // Gate Renew di sisi view:
-                    // hanya muncul kalau status Expired DAN allowGenerate (canGenerate) true.
-                    var canShowRenew = (statusLabel === 'Expired' && canGenerate);
+                    var isExpiredNow = (statusLabel === 'Expired');
+                    var btnMode = isExpiredNow ? 'renew' : 'copy';
+                    var btnLabel = isExpiredNow ? 'Renew' : 'Copy';
+                    var btnDisabledAttr = '';
+
+                    // Kalau status Expired tapi iklan belum selesai (canGenerate = false),
+                    // maka tombol Renew harus disable.
+                    if (isExpiredNow && !canGenerate) {
+                      btnDisabledAttr = 'disabled="disabled" aria-disabled="true"';
+                    }
                   %>
                   <tr
                     class="key-row"
@@ -251,35 +271,34 @@
                       <span class="badge <%= badgeClass %> key-status-badge"><%= statusLabel %></span>
                     </td>
 
-                    <!-- ACTIONS: Copy + (opsional) Renew -->
+                    <!-- ACTIONS: Copy (untuk Active) / Renew (untuk Expired) -->
                     <td class="key-cell-actions">
                       <button
                         type="button"
                         class="key-btn key-btn-xs key-btn-outline"
-                        data-copy="<%= k.token %>"
+                        data-copy-or-renew="1"
+                        data-mode="<%= btnMode %>"
+                        data-token="<%= k.token %>"
+                        <%- btnDisabledAttr %>
                       >
-                        Copy
+                        <%= btnLabel %>
                       </button>
 
                       <% if (renewAction) { %>
+                        <!-- Hidden form untuk Renew, dipanggil via JS ketika tombol di mode 'renew' diklik -->
                         <form
                           action="<%= renewAction %>"
                           method="POST"
                           class="key-renew-form"
                           data-renew-form="1"
-                          style="<%= canShowRenew ? 'display:inline-flex; margin-left:6px;' : 'display:none; margin-left:6px;' %>"
+                          style="display:none; margin-left:6px;"
                         >
                           <input type="hidden" name="token" value="<%= k.token %>" />
                           <% if (typeof currentUserId !== 'undefined' && currentUserId) { %>
                             <input type="hidden" name="userId" value="<%= currentUserId %>" />
                           <% } %>
-                          <button
-                            type="submit"
-                            class="key-btn key-btn-xs key-btn-ghost"
-                            <%= canGenerate ? '' : 'disabled="disabled" aria-disabled="true"' %>
-                          >
-                            Renew
-                          </button>
+                          <!-- Tombol submit tersembunyi, hanya untuk trigger submit() -->
+                          <button type="submit" data-renew-hidden-btn="1" style="display:none;"></button>
                         </form>
                       <% } %>
                     </td>
@@ -304,6 +323,7 @@
           <form
             action="<%= newKeyAction %>"
             method="POST"
+            data-new-key-form="1"
             style="display: inline-flex; flex-direction: column; align-items: center; gap: 8px;"
           >
             <% if (typeof currentUserId !== 'undefined' && currentUserId) { %>
@@ -332,10 +352,10 @@
     </div>
   </div>
 
-  <!-- ================= SCRIPT: COPY BUTTON ================= -->
+  <!-- ================= SCRIPT: COPY / RENEW BUTTON ================= -->
   <script>
     (function () {
-      var buttons = document.querySelectorAll('[data-copy]');
+      var buttons = document.querySelectorAll('[data-copy-or-renew]');
       if (!buttons || !buttons.length) return;
 
       function safeText(str, maxLen) {
@@ -348,9 +368,24 @@
 
       buttons.forEach(function (btn) {
         btn.addEventListener('click', function () {
-          var token = btn.getAttribute('data-copy') || '';
-          token = safeText(token, 256); // guard length
+          if (btn.disabled) return;
 
+          var mode = btn.getAttribute('data-mode') || 'copy';
+          var token = btn.getAttribute('data-token') || '';
+
+          if (mode === 'renew') {
+            // Mode RENEW → submit form renew di baris ini
+            var row = btn.closest('tr');
+            if (!row) return;
+            var renewForm = row.querySelector('form[data-renew-form="1"]');
+            if (!renewForm) return;
+
+            renewForm.submit();
+            return;
+          }
+
+          // Mode COPY
+          token = safeText(token, 256);
           if (!token) return;
 
           var prev = btn.textContent;
@@ -392,7 +427,7 @@
     })();
   </script>
 
-  <!-- ================= SCRIPT: REALTIME TIME LEFT + RENEW ================= -->
+  <!-- ================= SCRIPT: REALTIME TIME LEFT + DYNAMIC RENEW ================= -->
   <script>
     (function () {
       var table = document.querySelector('.key-table');
@@ -401,7 +436,7 @@
       var rows = table.querySelectorAll('tbody tr.key-row');
       if (!rows || !rows.length) return;
 
-      // Inject flag dari server: apakah sesi ini boleh generate/renew?
+      // Flag dari server: apakah sesi ini boleh generate/renew?
       var CAN_GENERATE = <%= canGenerate ? 'true' : 'false' %>;
 
       function formatRemaining(ms) {
@@ -439,7 +474,6 @@
           timeCell.textContent = formatRemaining(diff);
 
           var statusBadge = row.querySelector('.key-status-badge');
-          var renewForm   = row.querySelector('form[data-renew-form="1"]');
 
           if (diff <= 0) {
             // Sudah expired (atau lewat)
@@ -451,18 +485,16 @@
               statusBadge.dataset.expiredSet = '1';
             }
 
-            // Gate Renew di sisi client:
-            // kalau CAN_GENERATE = false → jangan tampilkan Renew walaupun expired.
-            if (!CAN_GENERATE) {
-              if (renewForm) {
-                renewForm.style.display = 'none';
-              }
-              return;
-            }
+            // Ubah tombol baris ini menjadi mode Renew
+            var actionBtn = row.querySelector('[data-copy-or-renew]');
+            if (actionBtn && actionBtn.getAttribute('data-mode') !== 'renew') {
+              actionBtn.setAttribute('data-mode', 'renew');
+              actionBtn.textContent = 'Renew';
 
-            // Kalau boleh generate & expired → tampilkan Renew
-            if (renewForm && renewForm.style.display === 'none') {
-              renewForm.style.display = 'inline-flex';
+              if (!CAN_GENERATE) {
+                actionBtn.disabled = true;
+                actionBtn.setAttribute('aria-disabled', 'true');
+              }
             }
           }
         });
@@ -471,6 +503,52 @@
       // Initial run + interval
       tick();
       setInterval(tick, 1000);
+    })();
+  </script>
+
+  <!-- ================= SCRIPT: GATE RENEW vs GET A NEW KEY (MUTUALLY EXCLUSIVE) ================= -->
+  <script>
+    (function () {
+      var newKeyForm = document.querySelector('form[data-new-key-form="1"]');
+      var newKeyBtn = newKeyForm
+        ? newKeyForm.querySelector('button[type="submit"]')
+        : null;
+
+      function disableButton(btn) {
+        if (!btn) return;
+        btn.disabled = true;
+        btn.setAttribute('aria-disabled', 'true');
+      }
+
+      function disableAllRenewButtons() {
+        var renewButtons = document.querySelectorAll(
+          '[data-copy-or-renew][data-mode="renew"]'
+        );
+        renewButtons.forEach(function (btn) {
+          disableButton(btn);
+        });
+      }
+
+      // Saat form Renew manapun disubmit → matikan Get A New Key + semua Renew lain
+      var renewForms = document.querySelectorAll('form[data-renew-form="1"]');
+      if (renewForms && renewForms.length) {
+        renewForms.forEach(function (form) {
+          form.addEventListener('submit', function () {
+            if (newKeyBtn) {
+              disableButton(newKeyBtn);
+            }
+            disableAllRenewButtons();
+          });
+        });
+      }
+
+      // Saat Get A New Key disubmit → matikan semua Renew (khusus kasus ada Expired)
+      if (newKeyForm && newKeyBtn) {
+        newKeyForm.addEventListener('submit', function () {
+          disableAllRenewButtons();
+          disableButton(newKeyBtn);
+        });
+      }
     })();
   </script>
 
