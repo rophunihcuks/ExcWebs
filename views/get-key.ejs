@@ -32,7 +32,7 @@
   <div class="container">
     <h1 class="section-title">ExHub Get <span class="accent-cycle">Your Key</span></h1>
     <p class="section-subtitle">
-      Gunakan Work.ink untuk mendapatkan free key, atau beli lifetime key untuk akses yang lebih nyaman.
+      Gunakan Work.ink/Linkvertise untuk mendapatkan free key, atau beli lifetime key untuk akses yang lebih nyaman.
     </p>
 
     <!-- GRID: Work.ink Free Key + Linkvertise + Custom Key -->
@@ -42,7 +42,7 @@
         <span class="badge badge-free big">Free Key</span>
         <h3>Work.ink ExHub Key</h3>
         <p>
-          Dapatkan free key melalui Work.ink. Wajib disarankan menggunakan browser Chrome
+          Dapatkan free key melalui Work.ink. Sangat disarankan  menggunakan browser Chrome
           agar mempermudah memperoleh key.
         </p>
         <ul style="margin: 10px 0 14px; padding-left: 18px; font-size: 13px; color: var(--text-muted);">
@@ -65,7 +65,7 @@
         <span class="badge badge-free big">Free Key</span>
         <h3>Linkvertise ExHub Key</h3>
         <p>
-          Dapatkan free key melalui Linkvertise. Wajib disarankan menggunakan browser Chrome
+          Dapatkan free key melalui Linkvertise. Sangat disarankan menggunakan browser Chrome
           agar mempermudah memperoleh key.
         </p>
         <ul style="margin: 10px 0 14px; padding-left: 18px; font-size: 13px; color: var(--text-muted);">
@@ -174,6 +174,7 @@
 
     function setState(text, type) {
       msgEl.textContent = text || '';
+      // Bersihkan meta setiap ganti state; nanti diisi ulang pakai innerHTML
       metaEl.textContent = '';
       if (!text) return;
 
@@ -186,12 +187,37 @@
       }
     }
 
-    function formatTs(ts) {
+    // Format satu timestamp ke 2 zona waktu: WITA & WIB
+    function formatTsMultiTZ(ts) {
       if (!ts) return '-';
       try {
         const d = new Date(ts);
         if (isNaN(d.getTime())) return String(ts);
-        return d.toLocaleString();
+
+        const baseOptions = {
+          dateStyle: 'short',
+          timeStyle: 'medium'
+        };
+
+        // WITA = Asia/Makassar (UTC+8)
+        const witaFormatter = new Intl.DateTimeFormat('id-ID', {
+          ...baseOptions,
+          timeZone: 'Asia/Makassar'
+        });
+
+        // WIB = Asia/Jakarta (UTC+7)
+        const wibFormatter = new Intl.DateTimeFormat('id-ID', {
+          ...baseOptions,
+          timeZone: 'Asia/Jakarta'
+        });
+
+        const witaStr = witaFormatter.format(d);
+        const wibStr = wibFormatter.format(d);
+
+        return (
+          'WITA (UTC+8): ' + witaStr +
+          '  |  WIB (UTC+7): ' + wibStr
+        );
       } catch (e) {
         return String(ts);
       }
@@ -213,11 +239,15 @@
       }
 
       const info = data.info || {};
+      const createdAt = info.createdAt;
+      // Antisipasi jika Work.ink suatu saat pakai expiredAt
+      const expiresAfter = info.expiresAfter || info.expiredAt;
+
       return {
         provider: 'workink',
         valid: !!data.valid,
-        createdAt: info.createdAt,
-        expiresAfter: info.expiresAfter
+        createdAt: createdAt,
+        expiresAfter: expiresAfter
       };
     }
 
@@ -237,11 +267,15 @@
       }
 
       const info = data.info || {};
+      const createdAt = info.createdAt;
+      // Antisipasi expiredAt / expiresAfter
+      const expiresAfter = info.expiresAfter || info.expiredAt;
+
       return {
         provider: 'linkvertise',
         valid: !!data.valid,
-        createdAt: info.createdAt,
-        expiresAfter: info.expiresAfter
+        createdAt: createdAt,
+        expiresAfter: expiresAfter
       };
     }
 
@@ -270,11 +304,13 @@
           }
 
           if (workResult && workResult.valid) {
-            const created = formatTs(workResult.createdAt);
-            const expires = formatTs(workResult.expiresAfter);
+            const createdStr = formatTsMultiTZ(workResult.createdAt);
+            const expiresStr = formatTsMultiTZ(workResult.expiresAfter);
             setState('Token VALID dan bisa digunakan (Work.ink).', 'ok');
-            metaEl.textContent =
-              'Provider: Work.ink  |  Created at: ' + created + '  |  Expired at: ' + expires;
+            metaEl.innerHTML =
+              'Provider: Work.ink' +
+              '<br>Created at: ' + createdStr +
+              '<br>Expired at: ' + expiresStr;
             return;
           }
 
@@ -286,15 +322,17 @@
           }
 
           if (linkResult && linkResult.valid) {
-            const created = formatTs(linkResult.createdAt);
-            const expires = formatTs(linkResult.expiresAfter);
+            const createdStr = formatTsMultiTZ(linkResult.createdAt);
+            const expiresStr = formatTsMultiTZ(linkResult.expiresAfter);
             setState('Token VALID dan bisa digunakan (Linkvertise).', 'ok');
-            metaEl.textContent =
-              'Provider: Linkvertise  |  Created at: ' + created + '  |  Expired at: ' + expires;
+            metaEl.innerHTML =
+              'Provider: Linkvertise' +
+              '<br>Created at: ' + createdStr +
+              '<br>Expired at: ' + expiresStr;
             return;
           }
 
-          // Jika sampai di sini berarti:
+          // Jika sampai di sini:
           // - Work.ink invalid / gagal, dan
           // - Linkvertise invalid / gagal
           if ((workResult && workResult.valid === false) ||
