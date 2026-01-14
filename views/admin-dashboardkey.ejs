@@ -21,7 +21,8 @@
             <p class="key-admin-subtitle admin-key-subtitle">
               Monitor IP &amp; tokens dari sistem <strong>Generate Key</strong>.
               Anda dapat menghapus semua token untuk 1 IP, menghapus token tertentu,
-              dan mengubah <code>createdAt</code> / <code>expiresAt</code> secara manual.
+              mengubah <code>createdAt</code> / <code>expiresAt</code> secara manual,
+              dan memperpanjang masa expired token dengan tombol <strong>Renew</strong>.
             </p>
 
             <div class="key-admin-pill-row">
@@ -218,7 +219,8 @@
               <p class="card-description">
                 Lihat semua token untuk IP tertentu, ubah
                 <code>createdAt</code> / <code>expiresAt</code>,
-                dan hapus token yang tidak diinginkan.
+                hapus token yang tidak diinginkan,
+                dan perpanjang masa aktif token via tombol <strong>Renew</strong>.
               </p>
             </div>
 
@@ -360,6 +362,25 @@
 
                       <!-- ACTIONS -->
                       <td class="key-cell-actions">
+                        <!-- RENEW: perpanjang masa expired key (gunakan defaultKeyHours di server) -->
+                        <form
+                          action="/admin/keys/renew-key"
+                          method="POST"
+                          class="admin-inline-form"
+                          style="margin-bottom:6px;"
+                          onsubmit="return confirm('Renew this key (extend expiry)?');"
+                        >
+                          <input type="hidden" name="token" value="<%= k.token %>" />
+                          <input type="hidden" name="ip" value="<%= selectedIp %>" />
+                          <button
+                            type="submit"
+                            class="key-btn key-btn-xs key-btn-ghost"
+                          >
+                            Renew
+                          </button>
+                        </form>
+
+                        <!-- DELETE: hapus key -->
                         <form
                           action="/admin/keys/delete-key"
                           method="POST"
