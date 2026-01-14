@@ -64,6 +64,15 @@
             // adsUrl kosong atau masih URL eksternal → pakai route internal start
             startUrl = '/generatekey/start' + _uidQuery;
           }
+
+          // ================= KEY ACTION / RENEW ACTION =================
+          // Disiapkan di sini supaya bisa dipakai di table dan CTA bawah
+          const newKeyAction =
+            (typeof keyAction !== 'undefined' && keyAction) ? keyAction : '/getkey/new';
+          const canGenerate =
+            (typeof allowGenerate === 'boolean') ? allowGenerate : true;
+          const renewAction =
+            (typeof renewAction !== 'undefined' && renewAction) ? renewAction : '/getkey/renew';
         %>
 
         <div class="key-header-progress">
@@ -123,7 +132,7 @@
       <section class="key-instructions">
         <h2 class="key-section-title">How it works</h2>
         <ol class="key-step-list">
-          <li>Click <strong>Start</strong> to open the ads / link-hub.</li>
+          <li>Click <strong>Start</strong> to open the ads</li>
           <li>Complete all required steps in Linkvertise until it redirects back here.</li>
           <li>
             After redirect, you should land on:
@@ -196,23 +205,43 @@
               </thead>
               <tbody>
                 <% keys.forEach(function(k) { %>
-                  <tr>
+                  <%
+                    // Server disarankan kirim salah satu:
+                    //  - k.expiresAtMs (ms sejak epoch)   ← rekomendasi
+                    //  - k.expiresAt
+                    //  - k.expiresAfter
+                    var expireTs = k && (k.expiresAtMs || k.expiresAt || k.expiresAfter || null);
+
+                    var statusLabel = k && k.status ? k.status : 'Active';
+                    var badgeClass =
+                      statusLabel === 'Active'
+                        ? 'badge-success'
+                        : statusLabel === 'Expired'
+                        ? 'badge-muted'
+                        : 'badge-danger';
+                  %>
+                  <tr
+                    class="key-row"
+                    data-status="<%= statusLabel %>"
+                    <% if (expireTs) { %> data-expire-ts="<%= expireTs %>" <% } %>
+                  >
                     <td class="key-cell-token">
                       <code class="key-token"><%= k.token %></code>
                     </td>
-                    <td><%= k.timeLeftLabel || '-' %></td>
-                    <td>
-                      <%
-                        var statusLabel = k.status || 'Active';
-                        var badgeClass =
-                          statusLabel === 'Active'
-                            ? 'badge-success'
-                            : statusLabel === 'Expired'
-                            ? 'badge-muted'
-                            : 'badge-danger';
-                      %>
-                      <span class="badge <%= badgeClass %>"><%= statusLabel %></span>
+
+                    <!-- TIME LEFT: realtime countdown via JS -->
+                    <td class="key-cell-time">
+                      <span class="key-time-label">
+                        <%= k.timeLeftLabel || (expireTs ? '' : '-') %>
+                      </span>
                     </td>
+
+                    <!-- STATUS BADGE (bisa diupdate JS ketika countdown habis) -->
+                    <td>
+                      <span class="badge <%= badgeClass %> key-status-badge"><%= statusLabel %></span>
+                    </td>
+
+                    <!-- ACTIONS: Copy + (optional) Renew jika Expired -->
                     <td class="key-cell-actions">
                       <button
                         type="button"
@@ -221,6 +250,27 @@
                       >
                         Copy
                       </button>
+
+                      <% if (renewAction) { %>
+                        <form
+                          action="<%= renewAction %>"
+                          method="POST"
+                          class="key-renew-form"
+                          data-renew-form="1"
+                          style="<%= statusLabel === 'Expired' ? 'display:inline-flex; margin-left:6px;' : 'display:none; margin-left:6px;' %>"
+                        >
+                          <input type="hidden" name="token" value="<%= k.token %>" />
+                          <% if (typeof currentUserId !== 'undefined' && currentUserId) { %>
+                            <input type="hidden" name="userId" value="<%= currentUserId %>" />
+                          <% } %>
+                          <button
+                            type="submit"
+                            class="key-btn key-btn-xs key-btn-ghost"
+                          >
+                            Renew
+                          </button>
+                        </form>
+                      <% } %>
                     </td>
                   </tr>
                 <% }); %>
@@ -239,14 +289,6 @@
 
       <!-- ================= CTA: GET A NEW KEY ================= -->
       <section class="key-body">
-        <%
-          // endpoint untuk generate key, default /getkey/new
-          const newKeyAction =
-            (typeof keyAction !== 'undefined' && keyAction) ? keyAction : '/getkey/new';
-          const canGenerate =
-            (typeof allowGenerate === 'boolean') ? allowGenerate : true;
-        %>
-
         <div style="margin-top: 18px; display: flex; justify-content: center;">
           <form
             action="<%= newKeyAction %>"
@@ -338,6 +380,72 @@
       });
     })();
   </script>
+
+  <!-- ================= SCRIPT: REALTIME TIME LEFT + RENEW ================= -->
+  <script>
+    (function () {
+      var rows = document.querySelectorAll('.key-table tbody tr.key-row');
+      if (!rows || !rows.length) return;
+
+      function formatRemaining(ms) {
+        if (!isFinite(ms)) return '-';
+        if (ms <= 0) return 'Expired';
+
+        var totalSec = Math.floor(ms / 1000);
+        var d = Math.floor(totalSec / 86400);
+        var h = Math.floor((totalSec % 86400) / 3600);
+        var m = Math.floor((totalSec % 3600) / 60);
+        var s = totalSec % 60;
+
+        var parts = [];
+        if (d > 0) parts.push(d + 'd');
+        if (h > 0 || d > 0) parts.push(h + 'h');
+        if (m > 0 || h > 0 || d > 0) parts.push(m + 'm');
+        parts.push(s + 's');
+        return parts.join(' ');
+      }
+
+      function tick() {
+        var now = Date.now();
+
+        rows.forEach(function (row) {
+          var expireStr = row.getAttribute('data-expire-ts');
+          if (!expireStr) return;
+
+          var expireTs = parseInt(expireStr, 10);
+          if (!expireTs || !isFinite(expireTs)) return;
+
+          var timeCell = row.querySelector('.key-time-label');
+          if (!timeCell) return;
+
+          var diff = expireTs - now;
+          timeCell.textContent = formatRemaining(diff);
+
+          var statusBadge = row.querySelector('.key-status-badge');
+          var renewForm   = row.querySelector('form[data-renew-form="1"]');
+
+          if (diff <= 0) {
+            // Sudah expired (atau lewat)
+            if (statusBadge && !statusBadge.dataset.expiredSet) {
+              statusBadge.textContent = 'Expired';
+              statusBadge.classList.remove('badge-success');
+              statusBadge.classList.remove('badge-danger');
+              statusBadge.classList.add('badge-muted');
+              statusBadge.dataset.expiredSet = '1';
+            }
+
+            if (renewForm && renewForm.style.display === 'none') {
+              renewForm.style.display = 'inline-flex';
+            }
+          }
+        });
+      }
+
+      tick();
+      setInterval(tick, 1000);
+    })();
+  </script>
+
   <!-- Proteksi dasar: blokir klik kanan + beberapa shortcut DevTools -->
   <script src="/js/protect-devtools.js"></script>
 </body>
