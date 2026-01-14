@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title><%= title || 'ExHub - Generate Key' %></title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-box, initial-scale=1" />
   <!-- pastikan file ada di public/css/main.css -->
   <link rel="stylesheet" href="/css/main.css" />
 </head>
@@ -21,20 +21,25 @@
           </p>
         </div>
 
-        <% 
-          // Progress ala Luarmor: 0/1 atau 1/1 (step = complete iklan + punya key)
+        <%
+          // State header kanan:
+          // - 'start'  : tombol Start (belum lewat iklan / checkpoint belum OK)
+          // - 'timer'  : jika suatu saat mau pakai timer (headerState='timer' + headerTimerLabel)
+          // - 'done'   : checkpoint ads sudah OK → siap generate key
+          const _headerState =
+            (typeof headerState !== 'undefined' && headerState) || 'start';
+          const _timerLabel =
+            (typeof headerTimerLabel !== 'undefined' && headerTimerLabel) || null;
+
+          // Progress ala Luarmor (1 step):
+          //  - 0/1 jika belum checkpoint (belum klik Start / belum kembali dengan ?done=1)
+          //  - 1/1 jika checkpoint sudah OK (headerState='done')
+          //  Setelah berhasil generate key, server akan reset checkpoint,
+          //  sehingga load berikutnya kembali 0/1 dan harus Start lagi.
           const totalSteps = 1;
-          const hasKey = !!(keys && keys.length);
-          const stepsDone = hasKey ? 1 : 0;
+          const stepsDone = _headerState === 'done' ? totalSteps : 0;
           const pctRaw = (stepsDone / totalSteps) * 100;
           const pct = Math.max(0, Math.min(100, Math.round(pctRaw)));
-
-          // State header kanan:
-          // - 'start'  : tombol Start (default)
-          // - 'timer'  : timer aktif (jika mau pakai, kirim headerState='timer' + headerTimerLabel)
-          // - 'done'   : sudah selesai (headerState='done')
-          const _headerState = (typeof headerState !== 'undefined' && headerState) || 'start';
-          const _timerLabel  = (typeof headerTimerLabel !== 'undefined' && headerTimerLabel) || null;
         %>
 
         <div class="key-header-progress">
@@ -48,19 +53,19 @@
 
         <div class="key-header-actions">
           <% if (_headerState === 'timer' && _timerLabel) { %>
-            <!-- Mode timer (contoh screenshot kedua) -->
+            <!-- Mode timer (opsional) -->
             <button type="button" class="key-btn key-btn-outline" disabled>
               <span class="key-btn-icon">⏳</span>
               <span><%= _timerLabel %></span>
             </button>
           <% } else if (_headerState === 'done') { %>
-            <!-- Mode DONE (contoh screenshot ketiga) -->
+            <!-- Mode DONE: iklan / checkpoint sudah selesai -->
             <button type="button" class="key-btn key-btn-outline" disabled>
               <span class="key-btn-icon">✔</span>
               <span>Done</span>
             </button>
           <% } else { %>
-            <!-- Default: tombol Start → Linkvertise -->
+            <!-- Default: tombol Start → Linkvertise / ads -->
             <a
               href="<%= adsUrl %>"
               class="key-btn key-btn-primary"
