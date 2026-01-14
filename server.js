@@ -1246,6 +1246,7 @@ async function buildWebKeysAdminData() {
         userId: entry.userId || null,
         createdAt: entry.createdAt || '',
         expiresAt: entry.expiresAt || '',
+        expiresAtMs: expiresMs || null,
         createdAtLabel: createdMs
           ? new Date(createdMs).toLocaleString('id-ID')
           : '-',
@@ -1398,15 +1399,15 @@ app.get('/generatekey', async (req, res) => {
         ? siteConfig.maxKeysPerIp
         : MAX_KEYS_PER_IP;
 
-    // ===== Load & GC web-keys (Generate Key) =====
-    let webKeys = await loadWebKeys();
+    // ===== Load web-keys (Generate Key) tanpa menghapus expired =====
+    const webKeys = await loadWebKeys();
     const nowMs = Date.now();
 
-    const cleanedKeys = [];
     const myKeys = [];
 
     for (const k of webKeys) {
       if (!k || !k.token) continue;
+      if (k.ip !== ip) continue;
 
       const createdMs = Date.parse(k.createdAt || '') || 0;
       let expiresMs = null;
@@ -1418,35 +1419,30 @@ app.get('/generatekey', async (req, res) => {
         }
       }
 
-      if (!expiresMs && defaultKeyHours > 0) {
+      if (!expiresMs && defaultKeyHours > 0 && createdMs) {
         expiresMs = createdMs + defaultKeyHours * 60 * 60 * 1000;
       }
 
       if (!createdMs && !expiresMs) continue;
 
-      // GC expired
-      if (expiresMs && expiresMs <= nowMs) {
-        continue;
-      }
+      const expired = !!(expiresMs && expiresMs <= nowMs);
+      const diff = expiresMs ? expiresMs - nowMs : null;
 
-      cleanedKeys.push(k);
+      const status = expired ? 'Expired' : 'Active';
+      const timeLeftLabel = expiresMs
+        ? expired
+          ? 'Expired'
+          : formatTimeLeft(diff)
+        : '-';
 
-      if (k.ip === ip) {
-        const diff = expiresMs ? expiresMs - nowMs : 0;
-        myKeys.push({
-          token: k.token,
-          timeLeftLabel: expiresMs ? formatTimeLeft(diff) : '-',
-          status: 'Active'
-        });
-      }
-    }
-
-    if (cleanedKeys.length !== webKeys.length) {
-      try {
-        await saveWebKeys(cleanedKeys);
-      } catch (err) {
-        console.error('Failed to save cleaned web-keys:', err);
-      }
+      myKeys.push({
+        token: k.token,
+        timeLeftLabel,
+        status,
+        expiresAtMs: expiresMs || null,
+        expiresAt: k.expiresAt || null,
+        expiresAfter: expiresMs || null
+      });
     }
 
     // ================== BUILD URL START (selalu lewat /generatekey/ads-start) ==================
@@ -1529,6 +1525,7 @@ app.get('/generatekey', async (req, res) => {
       headerTimerLabel,
       allowGenerate,
       keyAction: '/getkey/new',
+      renewAction: '/getkey/renew',
       currentUserId,
       baseUrl,
       requestHost: host
@@ -1561,6 +1558,7 @@ app.get('/generatekey', async (req, res) => {
       headerTimerLabel: null,
       allowGenerate: !REQUIRE_ADS_CHECKPOINT,
       keyAction: '/getkey/new',
+      renewAction: '/getkey/renew',
       currentUserId: '',
       baseUrl: '',
       requestHost: ''
@@ -1605,7 +1603,6 @@ app.post('/getkey/new', async (req, res) => {
     let webKeys = await loadWebKeys();
     const nowMs = Date.now();
 
-    const cleanedKeys = [];
     let activeForIp = 0;
 
     for (const k of webKeys) {
@@ -1621,23 +1618,18 @@ app.post('/getkey/new', async (req, res) => {
         }
       }
 
-      if (!expiresMs && defaultKeyHours > 0) {
+      if (!expiresMs && defaultKeyHours > 0 && createdMs) {
         expiresMs = createdMs + defaultKeyHours * 60 * 60 * 1000;
       }
 
       if (!createdMs && !expiresMs) continue;
 
-      if (expiresMs && expiresMs <= nowMs) {
-        continue; // expired → skip
-      }
+      const expired = !!(expiresMs && expiresMs <= nowMs);
 
-      cleanedKeys.push(k);
-      if (k.ip === ip) {
+      if (!expired && k.ip === ip) {
         activeForIp += 1;
       }
     }
-
-    webKeys = cleanedKeys;
 
     if (activeForIp >= maxKeysPerIp) {
       const msg =
@@ -1651,7 +1643,6 @@ app.post('/getkey/new', async (req, res) => {
         params.push('userId=' + encodeURIComponent(currentUserId));
       }
       const qs = params.length ? '?' + params.join('&') : '';
-      await saveWebKeys(webKeys);
       return res.redirect('/generatekey' + qs);
     }
 
@@ -1694,6 +1685,78 @@ app.post('/getkey/new', async (req, res) => {
     console.error('Failed to handle /getkey/new:', err);
     const params = [
       'errorMessage=' + encodeURIComponent('Failed to generate key.')
+    ];
+    const qs = params.length ? '?' + params.join('&') : '';
+    return res.redirect('/generatekey' + qs);
+  }
+});
+
+// Endpoint Renew key (per IP, dari halaman generatekey)
+app.post('/getkey/renew', async (req, res) => {
+  try {
+    const ip =
+      (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+      req.socket.remoteAddress ||
+      'unknown';
+
+    const currentUserId = (req.body.userId || '').trim() || '';
+    const token = (req.body.token || '').trim();
+
+    const siteConfig = await loadSiteConfig();
+    const defaultKeyHours =
+      typeof siteConfig.defaultKeyHours === 'number'
+        ? siteConfig.defaultKeyHours
+        : DEFAULT_KEY_HOURS;
+
+    const backParams = [];
+    if (currentUserId) {
+      backParams.push('userId=' + encodeURIComponent(currentUserId));
+    }
+
+    if (!token) {
+      backParams.push(
+        'errorMessage=' + encodeURIComponent('Missing token for renew.')
+      );
+      const qs = backParams.length ? '?' + backParams.join('&') : '';
+      return res.redirect('/generatekey' + qs);
+    }
+
+    let webKeys = await loadWebKeys();
+    const nowMs = Date.now();
+    const extendMs = defaultKeyHours * 60 * 60 * 1000;
+
+    let changed = false;
+
+    webKeys = webKeys.map((k) => {
+      if (!k || !k.token) return k;
+      if (String(k.token) !== String(token)) return k;
+      // User-route: hanya boleh renew key milik IP yang sama
+      if (k.ip !== ip) return k;
+
+      const updated = { ...k };
+      const newExpiresMs = nowMs + extendMs;
+      updated.expiresAt = new Date(newExpiresMs).toISOString();
+      changed = true;
+      return updated;
+    });
+
+    if (!changed) {
+      backParams.push(
+        'errorMessage=' +
+          encodeURIComponent('Key not found or cannot be renewed.')
+      );
+      const qs = backParams.length ? '?' + backParams.join('&') : '';
+      return res.redirect('/generatekey' + qs);
+    }
+
+    await saveWebKeys(webKeys);
+
+    const qs = backParams.length ? '?' + backParams.join('&') : '';
+    return res.redirect('/generatekey' + qs);
+  } catch (err) {
+    console.error('Failed to handle /getkey/renew:', err);
+    const params = [
+      'errorMessage=' + encodeURIComponent('Failed to renew key.')
     ];
     const qs = params.length ? '?' + params.join('&') : '';
     return res.redirect('/generatekey' + qs);
@@ -3243,6 +3306,56 @@ app.post('/admin/keys/update-key', requireAdmin, async (req, res) => {
     return res.redirect(back);
   } catch (err) {
     console.error('Failed to update key timestamps:', err);
+    return res.redirect('/admin/keys');
+  }
+});
+
+// Renew 1 key (per token) dari Admin
+app.post('/admin/keys/renew-key', requireAdmin, async (req, res) => {
+  try {
+    const token = (req.body.token || '').trim();
+    const ip = (req.body.ip || '').trim();
+
+    const backBase = ip
+      ? `/admin/keys?ip=${encodeURIComponent(ip)}`
+      : '/admin/keys';
+    const back =
+      token && ip
+        ? backBase + `#token-${encodeURIComponent(token)}`
+        : backBase;
+
+    if (!token) {
+      return res.redirect(backBase);
+    }
+
+    const siteConfig = await loadSiteConfig();
+    const defaultKeyHours =
+      typeof siteConfig.defaultKeyHours === 'number'
+        ? siteConfig.defaultKeyHours
+        : DEFAULT_KEY_HOURS;
+
+    let webKeys = await loadWebKeys();
+    const nowMs = Date.now();
+    const extendMs = defaultKeyHours * 60 * 60 * 1000;
+
+    let changed = false;
+
+    webKeys = webKeys.map((k) => {
+      if (!k || String(k.token) !== String(token)) return k;
+      const updated = { ...k };
+      const newExpiresMs = nowMs + extendMs;
+      updated.expiresAt = new Date(newExpiresMs).toISOString();
+      changed = true;
+      return updated;
+    });
+
+    if (changed) {
+      await saveWebKeys(webKeys);
+    }
+
+    return res.redirect(back);
+  } catch (err) {
+    console.error('Failed to renew key via admin:', err);
     return res.redirect('/admin/keys');
   }
 });
