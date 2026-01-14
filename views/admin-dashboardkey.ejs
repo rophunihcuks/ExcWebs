@@ -37,11 +37,13 @@
           </div>
 
           <div class="key-admin-header-actions admin-key-header-actions">
-            <!-- kosong dulu, bisa diisi tombol lain (mis. kembali ke dashboard utama) -->
+            <a href="/admin" class="key-btn key-btn-xs key-btn-outline">
+              ← Back to Admin Dashboard
+            </a>
           </div>
         </header>
 
-        <!-- METRICS RINGKAS -->
+        <!-- METRICS RINGKAS + DEFAULT EXPIRY CONTROL -->
         <div class="key-admin-metrics admin-key-metrics">
           <div class="key-admin-metric-card">
             <div class="key-admin-metric-label">Total IP</div>
@@ -73,13 +75,34 @@
             </div>
           </div>
 
+          <!-- Default Expiry – bisa diubah langsung -->
           <div class="key-admin-metric-card">
-            <div class="key-admin-metric-label">Default Expiry</div>
-            <div class="key-admin-metric-value">
-              <%= (typeof defaultKeyHours !== 'undefined' ? defaultKeyHours : 24) %>h
-            </div>
+            <div class="key-admin-metric-label">Default Expiry (hours)</div>
+            <form
+              action="/admin/keys/update-default"
+              method="POST"
+              class="key-admin-default-form"
+              autocomplete="off"
+            >
+              <input
+                type="number"
+                name="defaultKeyHours"
+                class="key-input"
+                style="max-width:90px; margin-top:4px; margin-bottom:6px;"
+                min="1"
+                max="168"
+                step="1"
+                value="<%= (typeof defaultKeyHours !== 'undefined' ? defaultKeyHours : 24) %>"
+              />
+              <button
+                type="submit"
+                class="key-btn key-btn-xs key-btn-primary"
+              >
+                Update
+              </button>
+            </form>
             <div class="key-admin-metric-sub">
-              Durasi default web key per generate
+              Berlaku untuk generate key berikutnya (bukan token lama).
             </div>
           </div>
         </div>
@@ -114,9 +137,9 @@
         </form>
       </div>
 
-      <!-- ================= GRID BODY (IP OVERVIEW + DETAIL) ================= -->
-      <main class="dashboard-main">
-        <!-- ========== IP OVERVIEW (LEFT / TOP ON MOBILE) ========== -->
+      <!-- ================= BODY (IP OVERVIEW + DETAIL, STACKED) ================= -->
+      <main class="key-admin-main">
+        <!-- ========== IP OVERVIEW (FULL WIDTH) ========== -->
         <section class="card admin-card-ip-list">
           <div class="card-header">
             <div class="card-header-main">
@@ -180,8 +203,8 @@
           <% } %>
         </section>
 
-        <!-- ========== SELECTED IP DETAIL (RIGHT / BOTTOM ON MOBILE) ========== -->
-        <section class="card admin-card-ip-detail">
+        <!-- ========== SELECTED IP DETAIL (FULL WIDTH DI BAWAH) ========== -->
+        <section class="card admin-card-ip-detail" style="margin-top:18px;">
           <div class="card-header">
             <div class="card-header-main">
               <h2 class="section-title small">
@@ -229,6 +252,11 @@
               </p>
             </div>
           <% } else { %>
+            <p class="card-description" style="margin-bottom:8px;">
+              Total tokens untuk IP ini:
+              <strong><%= selectedKeys.length %></strong>
+            </p>
+
             <div class="table-wrapper key-admin-table-wrapper">
               <table class="table table-compact key-table-activity">
                 <thead>
@@ -276,7 +304,7 @@
                               value="<%= k.createdAt %>"
                               placeholder="ISO or timestamp"
                               autocomplete="off"
-                              style="margin-top:4px; max-width:220px;"
+                              style="margin-top:4px; max-width:260px;"
                             />
                             <div class="table-sub-text">
                               <%= k.createdAtLabel || '-' %>
@@ -292,7 +320,7 @@
                               value="<%= k.expiresAt %>"
                               placeholder="ISO / timestamp / kosong = auto"
                               autocomplete="off"
-                              style="margin-top:4px; max-width:220px;"
+                              style="margin-top:4px; max-width:260px;"
                             />
                             <div class="table-sub-text">
                               <%= k.expiresAtLabel || '-' %>
