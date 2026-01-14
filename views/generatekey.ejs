@@ -28,51 +28,41 @@
           </p>
         </div>
 
-        <%
-          // State header kanan:
-          // - 'start'  : tombol Start (belum lewat iklan / checkpoint belum OK)
-          // - 'timer'  : jika suatu saat mau pakai timer (headerState='timer' + headerTimerLabel)
-          // - 'done'   : checkpoint ads sudah OK → siap generate key
-          const _headerState =
-            (typeof headerState !== 'undefined' && headerState) || 'start';
-          const _timerLabel =
-            (typeof headerTimerLabel !== 'undefined' && headerTimerLabel) || null;
+        <% 
+          // ======== HEADER STATE / PROGRESS ========
+          var _headerState = (typeof headerState !== 'undefined' && headerState) ? headerState : 'start';
+          var _timerLabel  = (typeof headerTimerLabel !== 'undefined' && headerTimerLabel) ? headerTimerLabel : null;
 
-          // Progress ala Luarmor (1 step):
-          //  - 0/1 jika belum checkpoint
-          //  - 1/1 jika checkpoint sudah OK (headerState='done')
-          const totalSteps = 1;
-          const stepsDone = _headerState === 'done' ? totalSteps : 0;
-          const pctRaw = (stepsDone / totalSteps) * 100;
-          const pct = Math.max(0, Math.min(100, Math.round(pctRaw)));
+          var totalSteps   = 1;
+          var stepsDone    = (_headerState === 'done') ? totalSteps : 0;
+          var pctRaw       = (stepsDone / totalSteps) * 100;
+          var pct          = Math.max(0, Math.min(100, Math.round(pctRaw)));
 
-          // ================= START URL LOGIC =================
-          // Server bisa kirim:
-          //  - adsUrl = full Linkvertise URL (lama)
-          //  - adsUrl = /generatekey/start?... (baru)
-          // Di sisi view, kita pastikan:
-          //  - kalau adsUrl sudah internal (/generatekey/...), pakai apa adanya
-          //  - kalau masih Linkvertise, override jadi /generatekey/start (+ userId)
-          const _adsUrl    = (typeof adsUrl !== 'undefined' && adsUrl) ? String(adsUrl) : '';
-          const _currUid   = (typeof currentUserId !== 'undefined' && currentUserId)
-            ? String(currentUserId).trim()
-            : '';
-          const _uidQuery  = _currUid ? ('?userId=' + encodeURIComponent(_currUid)) : '';
-          let   startUrl   = _adsUrl;
+          // ======== START URL (ads) ========
+          var _adsUrl   = (typeof adsUrl !== 'undefined' && adsUrl) ? String(adsUrl) : '';
+          var _currUid  = (typeof currentUserId !== 'undefined' && currentUserId) ? String(currentUserId).trim() : '';
+          var startUrl  = _adsUrl;
 
-          if (!_adsUrl || _adsUrl.indexOf('/generatekey/') === -1) {
-            // adsUrl kosong atau masih URL eksternal → pakai route internal start
-            startUrl = '/generatekey/start' + _uidQuery;
+          // Kalau server belum set adsUrl atau masih kosong → fallback ke /generatekey/ads-start
+          if (!startUrl) {
+            startUrl = '/generatekey/ads-start';
           }
 
-          // ================= KEY ACTION / RENEW ACTION =================
-          // Disiapkan di sini supaya bisa dipakai di table dan CTA bawah
-          const newKeyAction =
-            (typeof keyAction !== 'undefined' && keyAction) ? keyAction : '/getkey/new';
-          const canGenerate =
-            (typeof allowGenerate === 'boolean') ? allowGenerate : true;
-          const renewAction =
-            (typeof renewAction !== 'undefined' && renewAction) ? renewAction : '/getkey/renew';
+          // Pastikan userId ikut sebagai query (kalau ada)
+          if (_currUid) {
+            if (startUrl.indexOf('?') === -1) {
+              startUrl = startUrl + '?userId=' + encodeURIComponent(_currUid);
+            } else if (startUrl.indexOf('userId=') === -1) {
+              startUrl = startUrl + '&userId=' + encodeURIComponent(_currUid);
+            }
+          }
+
+          // ======== NEW KEY ACTION & GENERATE FLAG ========
+          var newKeyAction = (typeof keyAction !== 'undefined' && keyAction) ? keyAction : '/getkey/new';
+          var canGenerate  = (typeof allowGenerate === 'boolean') ? allowGenerate : true;
+
+          // ======== RENEW ACTION (jaga-jaga kalau mau dipakai di masa depan) ========
+          var renewAction  = (typeof renewAction !== 'undefined' && renewAction) ? renewAction : '/getkey/renew';
         %>
 
         <div class="key-header-progress">
@@ -97,7 +87,7 @@
               <span><%= _timerLabel %></span>
             </button>
           <% } else if (_headerState === 'done') { %>
-            <!-- Mode DONE: iklan / checkpoint sudah selesai -->
+            <!-- Mode DONE: checkpoint / ads sudah selesai -->
             <button
               type="button"
               class="key-btn key-btn-outline"
@@ -108,7 +98,7 @@
               <span>Done</span>
             </button>
           <% } else { %>
-            <!-- Default: tombol Start → route internal /generatekey/start (TAB YANG SAMA) -->
+            <!-- Default: tombol Start -->
             <a
               href="<%= startUrl %>"
               class="key-btn key-btn-primary"
@@ -132,14 +122,22 @@
       <section class="key-instructions">
         <h2 class="key-section-title">How it works</h2>
         <ol class="key-step-list">
-          <li>Click <strong>Start</strong> to open the ads</li>
+          <li>Click <strong>Start</strong> to open the ads.</li>
           <li>Complete all required steps in Linkvertise until it redirects back here.</li>
           <li>
             After redirect, you should land on:
             <code>
-              <%= (typeof baseUrl !== 'undefined' && baseUrl)
-                    ? baseUrl + '/generatekey'
-                    : ((requestHost || '') ? ('https://' + requestHost + '/generatekey') : '/generatekey') %>
+              <% 
+                var finalBase = (typeof baseUrl !== 'undefined' && baseUrl) ? baseUrl : '';
+                var finalHost = (typeof requestHost !== 'undefined' && requestHost) ? requestHost : '';
+                if (finalBase) { 
+              %>
+                <%= finalBase + '/generatekey' %>
+              <% } else if (finalHost) { %>
+                https://<%= finalHost %>/generatekey
+              <% } else { %>
+                /generatekey
+              <% } %>
             </code>.
           </li>
           <li>On that page, click <strong>Get A New Key</strong> to generate your token, then copy it into your ExHub loader / script.</li>
@@ -206,13 +204,22 @@
               <tbody>
                 <% keys.forEach(function(k) { %>
                   <%
-                    // Server disarankan kirim salah satu:
-                    //  - k.expiresAtMs (ms sejak epoch)   ← rekomendasi
-                    //  - k.expiresAt
-                    //  - k.expiresAfter
-                    var expireTs = k && (k.expiresAtMs || k.expiresAt || k.expiresAfter || null);
+                    // Server boleh kirim salah satu:
+                    //  - k.expiresAtMs (ms sejak epoch)
+                    //  - k.expiresAt (ms / ISO, tergantung implementasi)
+                    //  - k.expiresAfter (ms)
+                    var expireTs = null;
+                    if (k && typeof k.expiresAtMs !== 'undefined' && k.expiresAtMs !== null) {
+                      expireTs = parseInt(k.expiresAtMs, 10);
+                    } else if (k && typeof k.expiresAfter !== 'undefined' && k.expiresAfter !== null) {
+                      expireTs = parseInt(k.expiresAfter, 10);
+                    } else if (k && typeof k.expiresAt !== 'undefined' && k.expiresAt !== null) {
+                      // kalau server kirim ts langsung (number) via expiresAt:
+                      var tmp = parseInt(k.expiresAt, 10);
+                      if (!isNaN(tmp)) expireTs = tmp;
+                    }
 
-                    var statusLabel = k && k.status ? k.status : 'Active';
+                    var statusLabel = (k && k.status) ? k.status : 'Active';
                     var badgeClass =
                       statusLabel === 'Active'
                         ? 'badge-success'
@@ -229,19 +236,19 @@
                       <code class="key-token"><%= k.token %></code>
                     </td>
 
-                    <!-- TIME LEFT: realtime countdown via JS -->
+                    <!-- TIME LEFT: label awal dari server, bisa di-update JS -->
                     <td class="key-cell-time">
                       <span class="key-time-label">
                         <%= k.timeLeftLabel || (expireTs ? '' : '-') %>
                       </span>
                     </td>
 
-                    <!-- STATUS BADGE (bisa diupdate JS ketika countdown habis) -->
+                    <!-- STATUS BADGE -->
                     <td>
                       <span class="badge <%= badgeClass %> key-status-badge"><%= statusLabel %></span>
                     </td>
 
-                    <!-- ACTIONS: Copy + (optional) Renew jika Expired -->
+                    <!-- ACTIONS: Copy + (opsional) Renew -->
                     <td class="key-cell-actions">
                       <button
                         type="button"
@@ -384,7 +391,10 @@
   <!-- ================= SCRIPT: REALTIME TIME LEFT + RENEW ================= -->
   <script>
     (function () {
-      var rows = document.querySelectorAll('.key-table tbody tr.key-row');
+      var table = document.querySelector('.key-table');
+      if (!table) return;
+
+      var rows = table.querySelectorAll('tbody tr.key-row');
       if (!rows || !rows.length) return;
 
       function formatRemaining(ms) {
@@ -425,7 +435,6 @@
           var renewForm   = row.querySelector('form[data-renew-form="1"]');
 
           if (diff <= 0) {
-            // Sudah expired (atau lewat)
             if (statusBadge && !statusBadge.dataset.expiredSet) {
               statusBadge.textContent = 'Expired';
               statusBadge.classList.remove('badge-success');
