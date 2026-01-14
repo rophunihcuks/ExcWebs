@@ -32,9 +32,8 @@ body.page-dark {
 
 /* ========= ACCENT-CYCLE (TEKS BERUBAH WARNA) ========= */
 
-/* === ACCENT CYCLE (teks gradient animasi) === */
 .accent-cycle {
-  display: inline-block; /* supaya background bisa ter-apply dengan rapi */
+  display: inline-block;
   background-image: linear-gradient(
     120deg,
     #7bff3a,
@@ -49,7 +48,7 @@ body.page-dark {
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  color: transparent !important; /* override .section-title span */
+  color: transparent !important;
   animation: accent-cycle 10s ease-in-out infinite;
 }
 
@@ -144,7 +143,7 @@ body.page-dark {
 }
 
 .logo-text-fade {
-  opacity: 0.0;
+  opacity: 0;
   transform: translateY(2px);
 }
 
@@ -613,7 +612,7 @@ body.page-dark {
   gap: 8px;
 }
 
-/* Get key (legacy section, masih boleh dipakai untuk blok lama) */
+/* Get key (legacy section) */
 
 .getkey-grid {
   margin-top: 24px;
@@ -691,7 +690,7 @@ body.page-dark {
 }
 
 /* =========================================================
-   Generate Key Page ( /getkey -> views/generatekey.ejs )
+   Generate Key Page ( /generatekey -> views/generatekey.ejs )
    ======================================================= */
 
 .key-page {
@@ -1007,7 +1006,35 @@ body.page-dark {
   text-align: right;
 }
 
-/* BADGES untuk halaman key (pakai base .badge yang sudah ada) */
+/* BLOK JSON (Body JSON Template & Loader Script Example) */
+
+.key-body-json {
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  padding-top: 14px;
+  margin-top: 4px;
+}
+
+.key-json-wrapper {
+  margin-top: 6px;
+  border-radius: var(--radius-md, 12px);
+  background: #020617;
+  border: 1px solid rgba(15, 23, 42, 0.9);
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.key-json-block {
+  margin: 0;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #e5e7eb;
+  white-space: pre;
+}
+
+/* BADGES untuk halaman key */
 
 .badge-success {
   background: rgba(123, 255, 58, 0.12);
@@ -1035,6 +1062,11 @@ body.page-dark {
 /* RESPONSIVE untuk halaman key */
 
 @media (max-width: 900px) {
+  .key-page {
+    align-items: flex-start;
+    padding-top: 24px;
+  }
+
   .key-header {
     grid-template-columns: minmax(0, 1fr);
     align-items: flex-start;
@@ -1844,7 +1876,7 @@ body.page-dark {
 }
 
 /* =========================================================
-   RESPONSIVE
+   RESPONSIVE GLOBAL
    ========================================================= */
 
 @media (max-width: 880px) {
