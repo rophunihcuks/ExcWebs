@@ -42,7 +42,7 @@ async function kvRequest(pathPart) {
       }
     });
 
-    if (!res.ok) {
+      if (!res.ok) {
       const text = await res.text().catch(() => '');
       console.error('KV error', res.status, text);
       return null;
@@ -970,67 +970,67 @@ app.get('/scripts', async (req, res) => {
 });
 
 // ===================================================================
-// Generate Key PAGE (Luarmor-style) – tidak mengganggu /get-key lama
+// Generate Key PAGE (Luarmor-style, simple checkpoint)
 // ===================================================================
 
 app.get('/generatekey', async (req, res) => {
   try {
-    let scripts = await loadScripts();
-    scripts = await hydrateScriptsWithKV(scripts);
-
     const {
       token,
       createdAt,
       expiresAt,
-      status,
-      errorCode,
-      errorMessage,
-      scriptId
+      expiresAfter,
+      errorMessage
     } = req.query;
 
-    const safeToken = (token || '').trim() || null;
-    const defaultScriptId =
-      (scriptId && scriptId.trim()) ||
-      (scripts[0] && scripts[0].id) ||
-      'your-script-id';
-
-    const effectiveStatus =
-      status ||
-      (errorCode || errorMessage
-        ? 'error'
-        : safeToken
-        ? 'success'
-        : 'idle');
-
-    // Build keys array untuk tabel + progress
+    const safeToken = (token || '').trim();
     const keys = [];
-    if (safeToken) {
-      const now = new Date();
-      let timeLeftLabel = 'N/A';
-      let statusLabel = 'Active';
 
-      if (expiresAt) {
-        const d = new Date(expiresAt);
-        if (!Number.isNaN(d.getTime())) {
-          const diffMs = d - now;
-          if (diffMs <= 0) {
-            statusLabel = 'Expired';
-            timeLeftLabel = 'Expired';
-          } else {
-            const totalMinutes = Math.floor(diffMs / 60000);
-            const hours = Math.floor(totalMinutes / 60);
-            const minutes = totalMinutes % 60;
-            if (hours > 0) {
-              timeLeftLabel = `${hours}h ${minutes}m`;
-            } else {
-              timeLeftLabel = `${minutes}m`;
-            }
+    if (safeToken) {
+      const nowMs = Date.now();
+
+      // Normalisasi expires (bisa dari expiresAfter (timestamp ms) atau expiresAt)
+      let expiresMs = null;
+
+      if (expiresAfter != null) {
+        const n = parseInt(expiresAfter, 10);
+        if (!Number.isNaN(n)) {
+          expiresMs = n;
+        }
+      } else if (expiresAt != null) {
+        const raw = String(expiresAt);
+        if (/^\d+$/.test(raw)) {
+          const n = parseInt(raw, 10);
+          if (!Number.isNaN(n)) {
+            expiresMs = n;
+          }
+        } else {
+          const d = new Date(raw);
+          const t = d.getTime();
+          if (!Number.isNaN(t)) {
+            expiresMs = t;
           }
         }
       }
 
-      if (effectiveStatus === 'error') {
-        statusLabel = 'Error';
+      let timeLeftLabel = 'N/A';
+      let statusLabel = 'Active';
+
+      if (expiresMs && Number.isFinite(expiresMs)) {
+        const diff = expiresMs - nowMs;
+        if (diff <= 0) {
+          statusLabel = 'Expired';
+          timeLeftLabel = 'Expired';
+        } else {
+          const totalMinutes = Math.floor(diff / 60000);
+          const hours = Math.floor(totalMinutes / 60);
+          const minutes = totalMinutes % 60;
+          if (hours > 0) {
+            timeLeftLabel = `${hours}h ${minutes}m`;
+          } else {
+            timeLeftLabel = `${minutes}m`;
+          }
+        }
       }
 
       keys.push({
@@ -1040,94 +1040,21 @@ app.get('/generatekey', async (req, res) => {
       });
     }
 
-    // Contoh BODY JSON untuk /api/exec
-    const bodyPreview = {
-      scriptId: defaultScriptId,
-      userId: 1234567890,
-      username: 'PlayerUsername',
-      displayName: 'PlayerDisplayName',
-      hwid: 'HWID-OR-DEVICE-ID',
-      executorUse: 'ExecutorName',
-      clientExecuteCount: 1,
-      key: safeToken || 'EXHUB-XXX-XXX-XXX',
-      createdAt: createdAt || new Date().toISOString(),
-      expiresAt: expiresAt || null,
-      mapName: 'Game / Map Name',
-      placeId: 1234567890,
-      serverId: 'server-job-id',
-      gameId: 1234567890
-    };
-
-    const exampleJson = JSON.stringify(bodyPreview, null, 2);
-
-    // Contoh loader snippet (Roblox Lua) yang mengirim ke /api/exec
-    const loaderSnippet = `local HttpService = game:GetService("HttpService")
-local Players = game:GetService("Players")
-local localPlayer = Players.LocalPlayer
-
-local body = {
-    scriptId = "${bodyPreview.scriptId}",
-    userId = localPlayer and localPlayer.UserId or 0,
-    username = localPlayer and localPlayer.Name or "Unknown",
-    displayName = localPlayer and localPlayer.DisplayName or "Unknown",
-    hwid = (identifyexecutor and identifyexecutor()) or "unknown-hwid",
-    executorUse = (identifyexecutor and identifyexecutor()) or "unknown",
-    clientExecuteCount = 1,
-    key = "${safeToken || 'EXHUB-XXX-XXX-XXX'}",
-    createdAt = "${bodyPreview.createdAt}",
-    expiresAt = ${
-      bodyPreview.expiresAt ? `"${bodyPreview.expiresAt}"` : "nil"
-    },
-    mapName = "Game / Map Name",
-    placeId = game.PlaceId,
-    serverId = game.JobId,
-    gameId = game.GameId
-}
-
-local req = (syn and syn.request)
-    or (http and http.request)
-    or (request)
-    or (http_request)
-
-if req then
-    pcall(function()
-        req({
-            Url = "https://exc-webs.vercel.app/api/exec",
-            Method = "POST",
-            Headers = {
-                ["Content-Type"] = "application/json"
-            },
-            Body = HttpService:JSONEncode(body)
-        })
-    end)
-end
-
-loadstring(game:HttpGet("https://exc-webs.vercel.app/api/script/${bodyPreview.scriptId}", true))()`;
-
     return res.render('generatekey', {
-      title: 'ExHub Key Generator',
-      status: effectiveStatus,
-      token: safeToken,
-      createdAt: createdAt || null,
-      expiresAt: expiresAt || null,
-      errorCode: errorCode || null,
-      errorMessage: errorMessage || null,
-      scripts,
-      defaultScriptId,
-      exampleJson,
-      loaderSnippet,
+      title: 'ExHub - Generate Key',
       keys,
       maxKeys: MAX_KEYS_PER_IP,
-      adsUrl: GENERATEKEY_ADS_URL
+      adsUrl: GENERATEKEY_ADS_URL,
+      errorMessage: errorMessage || null
     });
   } catch (err) {
     console.error('Failed to render /generatekey:', err);
-    let scripts = await loadScripts();
-    scripts = await hydrateScriptsWithKV(scripts);
-    const stats = computeStats(scripts);
-    return res.status(500).render('index', {
-      stats,
-      scripts
+    return res.status(500).render('generatekey', {
+      title: 'ExHub - Generate Key',
+      keys: [],
+      maxKeys: MAX_KEYS_PER_IP,
+      adsUrl: GENERATEKEY_ADS_URL,
+      errorMessage: 'Internal server error.'
     });
   }
 });
@@ -1668,7 +1595,7 @@ app.get('/api/exec', async (req, res) => {
 });
 
 // ===================================================================
-// API isValidate – cek key + BODY JSON template
+// API isValidate – Luarmor-like JSON (valid/deleted/info)
 // ===================================================================
 
 app.get('/api/isValidate/:key', async (req, res) => {
@@ -1676,8 +1603,9 @@ app.get('/api/isValidate/:key', async (req, res) => {
     const rawKey = (req.params.key || '').trim();
     if (!rawKey) {
       return res.status(400).json({
-        ok: false,
-        error: 'missing_key'
+        valid: false,
+        deleted: false,
+        info: null
       });
     }
 
@@ -1686,92 +1614,96 @@ app.get('/api/isValidate/:key', async (req, res) => {
     const execUsers = await loadExecUsers();
     const redeemedList = await loadRedeemedKeys();
 
-    const matchesExec = execUsers.filter((u) => {
-      if (!u || !u.keyToken) return false;
-      return String(u.keyToken).toUpperCase() === normKey;
-    });
-
-    const redeemed = redeemedList.find((k) => {
-      if (!k || !k.key) return false;
-      return String(k.key).toUpperCase() === normKey;
-    });
-
-    let valid = false;
-    let status = 'UNKNOWN';
-    const boundUsers = [];
-
-    let createdAt = null;
-    let expiresAt = null;
-
-    if (matchesExec.length > 0) {
-      valid = true;
-      status = 'ACTIVE';
-
-      matchesExec.forEach((u) => {
-        boundUsers.push({
-          scriptId: u.scriptId || null,
-          userId: u.userId || null,
-          username: u.username || null,
-          displayName: u.displayName || null,
-          hwid: u.hwid || null,
-          executorUse: u.executorUse || null,
-          lastExecuteAt: u.lastExecuteAt || null,
-          mapName: u.mapName || null,
-          placeId: u.placeId || null,
-          serverId: u.serverId || null,
-          gameId: u.gameId || null
-        });
-
-        if (!createdAt && u.keyCreatedAt) {
-          createdAt = u.keyCreatedAt;
-        }
-        if (!expiresAt && u.keyExpiresAt) {
-          expiresAt = u.keyExpiresAt;
-        }
-      });
-    } else if (redeemed) {
-      valid = true;
-      status = 'REDEEMED';
-      createdAt = redeemed.redeemedAt || null;
+    // Cari data key dari exec-users (keyToken) terlebih dahulu
+    let sourceExec = null;
+    for (const u of execUsers) {
+      if (!u || !u.keyToken) continue;
+      if (String(u.keyToken).toUpperCase() === normKey) {
+        sourceExec = u;
+        break;
+      }
     }
 
-    const nowIso = new Date().toISOString();
+    // Kalau tidak ketemu di exec, cek redeemed-keys.json
+    let redeemed = null;
+    if (!sourceExec) {
+      for (const k of redeemedList) {
+        if (!k || !k.key) continue;
+        if (String(k.key).toUpperCase() === normKey) {
+          redeemed = k;
+          break;
+        }
+      }
+    }
 
-    const bodyTemplate = {
-      scriptId:
-        (boundUsers[0] && boundUsers[0].scriptId) ||
-        'your-script-id',
-      userId: 1234567890,
-      username: 'PlayerUsername',
-      displayName: 'PlayerDisplayName',
-      hwid: 'HWID-OR-DEVICE-ID',
-      executorUse: 'ExecutorName',
-      clientExecuteCount: 1,
-      key: normKey,
-      createdAt: createdAt || nowIso,
-      expiresAt: expiresAt,
-      mapName: 'Game / Map Name',
-      placeId: 1234567890,
-      serverId: 'server-job-id',
-      gameId: 1234567890
+    let valid = false;
+    let deleted = false; // saat ini belum ada konsep delete khusus → selalu false
+    let info = null;
+
+    // Helper konversi ke timestamp ms
+    const toMs = (value, fallbackMs) => {
+      if (value == null) return fallbackMs;
+      if (typeof value === 'number') return value;
+      const str = String(value);
+      if (/^\d+$/.test(str)) {
+        const n = parseInt(str, 10);
+        if (!Number.isNaN(n)) return n;
+      }
+      const d = new Date(str);
+      const t = d.getTime();
+      if (!Number.isNaN(t)) return t;
+      return fallbackMs;
     };
 
+    const nowMs = Date.now();
+
+    if (sourceExec) {
+      valid = true;
+
+      const createdMs = toMs(sourceExec.keyCreatedAt, nowMs);
+      const expiresMs =
+        sourceExec.keyExpiresAt != null
+          ? toMs(sourceExec.keyExpiresAt, null)
+          : null;
+
+      info = {
+        token: normKey,
+        createdAt: createdMs,
+        byIp: sourceExec.lastIp || '0.0.0.0',
+        linkId: null,
+        userId: sourceExec.userId ? Number(sourceExec.userId) : null,
+        expiresAfter: expiresMs
+      };
+    } else if (redeemed) {
+      valid = true;
+
+      const createdMs = toMs(redeemed.redeemedAt, nowMs);
+
+      info = {
+        token: normKey,
+        createdAt: createdMs,
+        byIp: redeemed.ip || '0.0.0.0',
+        linkId: null,
+        userId: null,
+        expiresAfter: null
+      };
+    } else {
+      // key tidak dikenal
+      valid = false;
+      info = null;
+    }
+
     return res.json({
-      ok: true,
-      key: normKey,
       valid,
-      status,
-      createdAt,
-      expiresAt,
-      boundCount: boundUsers.length,
-      boundUsers,
-      bodyTemplate
+      deleted,
+      info
     });
   } catch (err) {
     console.error('Failed to handle /api/isValidate:', err);
     return res.status(500).json({
-      ok: false,
-      error: 'validate_error'
+      valid: false,
+      deleted: false,
+      info: null
     });
   }
 });
