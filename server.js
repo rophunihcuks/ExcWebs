@@ -158,6 +158,13 @@ const GENERATEKEY_ADS_URL =
   process.env.GENERATEKEY_ADS_URL ||
   'https://linkvertise.com/2995260/0xLAgWUZzCns?o=sharing';
 
+// Durasi minimal dan maksimal (window) user berada di iklan (detik)
+const MIN_AD_SECONDS = parseInt(process.env.MIN_AD_SECONDS || '15', 10);
+const MAX_AD_WINDOW_SECONDS = parseInt(
+  process.env.MAX_AD_WINDOW_SECONDS || '600',
+  10
+);
+
 // ---- helper file lokal (fallback) ---------------------------------
 
 function loadScriptsFromFile() {
@@ -1154,6 +1161,17 @@ app.get('/scripts', async (req, res) => {
 // Generate Key PAGE (Luarmor-style, strict checkpoint per 1 key)
 // ===================================================================
 
+// Step 1: user klik Start → catat waktu & userId, lalu redirect ke Linkvertise
+app.get('/generatekey/start', (req, res) => {
+  const currentUserId = (req.query.userId || '').trim();
+
+  req.session.adsStartAt = Date.now();
+  req.session.adsStartUsed = false;
+  req.session.adsUserId = currentUserId || null;
+
+  return res.redirect(GENERATEKEY_ADS_URL);
+});
+
 app.get('/generatekey', async (req, res) => {
   try {
     const host = req.get('host') || '';
@@ -1164,7 +1182,9 @@ app.get('/generatekey', async (req, res) => {
       req.socket.remoteAddress ||
       'unknown';
 
-    const currentUserId = (req.query.userId || '').trim();
+    const qUserId = (req.query.userId || '').trim();
+    const sessionUserId = (req.session.adsUserId || '').trim();
+    const currentUserId = qUserId || sessionUserId;
 
     const siteConfig = await loadSiteConfig();
     const defaultKeyHours =
@@ -1230,7 +1250,7 @@ app.get('/generatekey', async (req, res) => {
 
     let allowGenerate = true;
     let headerState = 'start';
-    const headerTimerLabel = null;
+    let headerTimerLabel = null;
 
     if (REQUIRE_ADS_CHECKPOINT) {
       const fromAds =
@@ -1240,13 +1260,38 @@ app.get('/generatekey', async (req, res) => {
         req.query.ads === '1';
 
       if (fromAds) {
-        // Tandai bahwa sesi ini sudah melewati iklan
-        req.session.generateKeyAdsOk = true;
+        const now = Date.now();
+        const startedAt = req.session.adsStartAt || 0;
+        const startedUsed = !!req.session.adsStartUsed;
 
-        // Redirect ke URL bersih tanpa ?done=1 dll
+        const elapsed = startedAt ? now - startedAt : 0;
+        const MIN_AD_MS = MIN_AD_SECONDS * 1000;
+        const MAX_AD_WINDOW_MS = MAX_AD_WINDOW_SECONDS * 1000;
+
+        const withinWindow =
+          startedAt &&
+          elapsed >= MIN_AD_MS &&
+          elapsed <= MAX_AD_WINDOW_MS;
+
+        const referer = (req.headers.referer || '').toLowerCase();
+        const refererOk = referer.includes('linkvertise.com');
+
+        if (withinWindow && !startedUsed && refererOk) {
+          req.session.generateKeyAdsOk = true;
+          req.session.adsStartUsed = true;
+        } else {
+          // Percobaan tidak valid → reset status checkpoint
+          req.session.generateKeyAdsOk = false;
+          req.session.adsStartAt = null;
+          req.session.adsStartUsed = false;
+        }
+
+        // Selalu redirect ke URL bersih tanpa ?done=1
         const params = [];
-        if (currentUserId) {
-          params.push('userId=' + encodeURIComponent(currentUserId));
+        const effectiveUserId =
+          currentUserId || (req.session.adsUserId || '');
+        if (effectiveUserId) {
+          params.push('userId=' + encodeURIComponent(effectiveUserId));
         }
         const qs = params.length ? '?' + params.join('&') : '';
         return res.redirect('/generatekey' + qs);
@@ -1425,6 +1470,8 @@ app.post('/getkey/new', async (req, res) => {
     // sehingga untuk key ke-2 wajib klik Start & selesaikan iklan lagi.
     if (REQUIRE_ADS_CHECKPOINT) {
       req.session.generateKeyAdsOk = false;
+      req.session.adsStartAt = null;
+      req.session.adsStartUsed = false;
     }
 
     const params = [];
