@@ -43,7 +43,7 @@ async function kvRequest(pathPart) {
       }
     });
 
-    if (!res.ok) {
+      if (!res.ok) {
       const text = await res.text().catch(() => '');
       console.error('KV error', res.status, text);
       return null;
@@ -857,6 +857,64 @@ function formatTimeLeft(diffMs) {
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
+// Format waktu WITA + WIB untuk label Admin Key
+const DATE_TIME_FORMAT_OPTIONS_TZ = {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false
+};
+
+function formatDualTimeLabelMs(ms) {
+  if (!ms || !Number.isFinite(ms)) return '-';
+  try {
+    const date = new Date(ms);
+
+    const fmtWIB = new Intl.DateTimeFormat('id-ID', {
+      ...DATE_TIME_FORMAT_OPTIONS_TZ,
+      timeZone: 'Asia/Jakarta'
+    });
+    const fmtWITA = new Intl.DateTimeFormat('id-ID', {
+      ...DATE_TIME_FORMAT_OPTIONS_TZ,
+      timeZone: 'Asia/Makassar'
+    });
+
+    const wib = fmtWIB.format(date);
+    const wita = fmtWITA.format(date);
+    return `${wib} WIB / ${wita} WITA`;
+  } catch (err) {
+    console.error('formatDualTimeLabelMs error:', err);
+    return new Date(ms).toLocaleString('id-ID');
+  }
+}
+
+// Parser format relatif admin: "01h 10m 20s" → ms absolute (now + durasi)
+function parseRelativeExpiresInput(raw, nowMs) {
+  if (!raw) return null;
+  const str = String(raw).trim();
+  if (!str) return null;
+
+  // Mendukung variasi: "1h 10m 20s", "1h10m20s", "20m 0s", "30m"
+  const re =
+    /^\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?\s*(?:(\d+)\s*s(?:ec(?:onds?)?)?)?\s*$/i;
+  const m = str.match(re);
+  if (!m) return null;
+
+  const h = m[1] ? parseInt(m[1], 10) : 0;
+  const min = m[2] ? parseInt(m[2], 10) : 0;
+  const s = m[3] ? parseInt(m[3], 10) : 0;
+
+  if (Number.isNaN(h) || Number.isNaN(min) || Number.isNaN(s)) return null;
+
+  const totalMs = (h * 3600 + min * 60 + s) * 1000;
+  if (totalMs <= 0) return null;
+
+  return nowMs + totalMs;
+}
+
 // ---- stats helpers ------------------------------------------------
 
 function computeStats(scripts) {
@@ -1247,12 +1305,8 @@ async function buildWebKeysAdminData() {
         createdAt: entry.createdAt || '',
         expiresAt: entry.expiresAt || '',
         expiresAtMs: expiresMs || null,
-        createdAtLabel: createdMs
-          ? new Date(createdMs).toLocaleString('id-ID')
-          : '-',
-        expiresAtLabel: expiresMs
-          ? new Date(expiresMs).toLocaleString('id-ID')
-          : '-',
+        createdAtLabel: createdMs ? formatDualTimeLabelMs(createdMs) : '-',
+        expiresAtLabel: expiresMs ? formatDualTimeLabelMs(expiresMs) : '-',
         timeLeftLabel,
         status: expired ? 'Expired' : 'Active'
       });
@@ -1265,13 +1319,9 @@ async function buildWebKeysAdminData() {
       totalKeys: total,
       activeKeys: active,
       lastCreatedAt:
-        lastCreatedMs > 0
-          ? new Date(lastCreatedMs).toLocaleString('id-ID')
-          : '-',
+        lastCreatedMs > 0 ? formatDualTimeLabelMs(lastCreatedMs) : '-',
       lastExpiresAt:
-        lastExpiresMs > 0
-          ? new Date(lastExpiresMs).toLocaleString('id-ID')
-          : '-'
+        lastExpiresMs > 0 ? formatDualTimeLabelMs(lastExpiresMs) : '-'
     });
   });
 
@@ -1702,12 +1752,6 @@ app.post('/getkey/renew', async (req, res) => {
     const currentUserId = (req.body.userId || '').trim() || '';
     const token = (req.body.token || '').trim();
 
-    const siteConfig = await loadSiteConfig();
-    const defaultKeyHours =
-      typeof siteConfig.defaultKeyHours === 'number'
-        ? siteConfig.defaultKeyHours
-        : DEFAULT_KEY_HOURS;
-
     const backParams = [];
     if (currentUserId) {
       backParams.push('userId=' + encodeURIComponent(currentUserId));
@@ -1720,6 +1764,22 @@ app.post('/getkey/renew', async (req, res) => {
       const qs = backParams.length ? '?' + backParams.join('&') : '';
       return res.redirect('/generatekey' + qs);
     }
+
+    // WAJIB: kalau checkpoint diaktifkan, tapi belum ada flag sessionOk → tolak Renew
+    if (REQUIRE_ADS_CHECKPOINT && !req.session.generateKeyAdsOk) {
+      backParams.push(
+        'errorMessage=' +
+          encodeURIComponent('Complete the Start / ads step first.')
+      );
+      const qs = backParams.length ? '?' + backParams.join('&') : '';
+      return res.redirect('/generatekey' + qs);
+    }
+
+    const siteConfig = await loadSiteConfig();
+    const defaultKeyHours =
+      typeof siteConfig.defaultKeyHours === 'number'
+        ? siteConfig.defaultKeyHours
+        : DEFAULT_KEY_HOURS;
 
     let webKeys = await loadWebKeys();
     const nowMs = Date.now();
@@ -1750,6 +1810,12 @@ app.post('/getkey/renew', async (req, res) => {
     }
 
     await saveWebKeys(webKeys);
+
+    // Setelah Renew sukses, konsumsi juga checkpoint iklan (1x per sesi)
+    if (REQUIRE_ADS_CHECKPOINT) {
+      req.session.generateKeyAdsOk = false;
+      req.session.adsCheckpoint = null;
+    }
 
     const qs = backParams.length ? '?' + backParams.join('&') : '';
     return res.redirect('/generatekey' + qs);
@@ -2322,7 +2388,7 @@ app.get('/api/isValidate/:key', async (req, res) => {
     const webKeys = await loadWebKeys();
     const deletedList = await loadDeletedKeys();
 
-    // Cari data key dari exec-users (keyToken) terlebih dahulu
+    // Cari data key dari exec-users (keyToken)
     let sourceExec = null;
     for (const u of execUsers) {
       if (!u || !u.keyToken) continue;
@@ -2332,21 +2398,19 @@ app.get('/api/isValidate/:key', async (req, res) => {
       }
     }
 
-    // Kalau tidak ketemu di exec, cek web-keys (generatekey)
+    // Cari entry di web-keys (Generate Key) – ini yang diprioritaskan untuk expiry
     let webEntry = null;
-    if (!sourceExec) {
-      for (const k of webKeys) {
-        if (!k || !k.token) continue;
-        if (String(k.token).toUpperCase() === normKey) {
-          webEntry = k;
-          break;
-        }
+    for (const k of webKeys) {
+      if (!k || !k.token) continue;
+      if (String(k.token).toUpperCase() === normKey) {
+        webEntry = k;
+        break;
       }
     }
 
     // Kalau tidak ketemu di web-keys, cek redeemed-keys.json (sistem lama)
     let redeemed = null;
-    if (!sourceExec && !webEntry) {
+    if (!webEntry && !sourceExec) {
       for (const k of redeemedList) {
         if (!k || !k.key) continue;
         if (String(k.key).toUpperCase() === normKey) {
@@ -2366,10 +2430,6 @@ app.get('/api/isValidate/:key', async (req, res) => {
       }
     }
 
-    let valid = false;
-    let deleted = !!deletedEntry;
-    let info = null;
-
     // Helper konversi ke timestamp ms
     const toMs = (value, fallbackMs) => {
       if (value == null) return fallbackMs;
@@ -2387,7 +2447,40 @@ app.get('/api/isValidate/:key', async (req, res) => {
 
     const nowMs = Date.now();
 
-    if (sourceExec) {
+    let valid = false;
+    let deleted = !!deletedEntry;
+    let info = null;
+
+    if (webEntry) {
+      // Sumber utama expiry: web-keys (bisa diubah lewat Admin)
+      const createdMs = toMs(webEntry.createdAt, nowMs);
+      const expiresMs = toMs(webEntry.expiresAt, null);
+      const expired = expiresMs != null && expiresMs <= nowMs;
+
+      valid = !expired;
+
+      let userIdNum = null;
+      if (sourceExec && sourceExec.userId != null) {
+        const n = Number(sourceExec.userId);
+        userIdNum = Number.isNaN(n) ? null : n;
+      } else if (webEntry.userId != null) {
+        const n = Number(webEntry.userId);
+        userIdNum = Number.isNaN(n) ? null : n;
+      }
+
+      info = {
+        token: normKey,
+        createdAt: createdMs,
+        byIp:
+          (sourceExec && sourceExec.lastIp) ||
+          webEntry.ip ||
+          '0.0.0.0',
+        linkId: webEntry.linkId || null,
+        userId: userIdNum,
+        expiresAfter: expiresMs
+      };
+    } else if (sourceExec) {
+      // Fallback ke exec-users (key sudah dipakai, tapi bukan web-keys atau sudah manual)
       valid = true;
 
       const createdMs = toMs(sourceExec.keyCreatedAt, nowMs);
@@ -2404,22 +2497,8 @@ app.get('/api/isValidate/:key', async (req, res) => {
         userId: sourceExec.userId ? Number(sourceExec.userId) : null,
         expiresAfter: expiresMs
       };
-    } else if (webEntry) {
-      const createdMs = toMs(webEntry.createdAt, nowMs);
-      const expiresMs = toMs(webEntry.expiresAt, null);
-      const expired = expiresMs != null && expiresMs <= nowMs;
-
-      valid = !expired;
-
-      info = {
-        token: normKey,
-        createdAt: createdMs,
-        byIp: webEntry.ip || '0.0.0.0',
-        linkId: webEntry.linkId || null,
-        userId: webEntry.userId ? Number(webEntry.userId) : null,
-        expiresAfter: expiresMs
-      };
     } else if (redeemed) {
+      // Sistem redeem lama
       valid = true;
 
       const createdMs = toMs(redeemed.redeemedAt, nowMs);
@@ -3272,7 +3351,7 @@ app.post('/admin/keys/update-key', requireAdmin, async (req, res) => {
     const token = (req.body.token || '').trim();
     const ip = (req.body.ip || '').trim();
     const newCreatedAt = (req.body.createdAt || '').trim();
-    const newExpiresAt = (req.body.expiresAt || '').trim();
+    const newExpiresAtRaw = (req.body.expiresAt || '').trim();
 
     const backBase = ip
       ? `/admin/keys?ip=${encodeURIComponent(ip)}`
@@ -3288,13 +3367,30 @@ app.post('/admin/keys/update-key', requireAdmin, async (req, res) => {
 
     let webKeys = await loadWebKeys();
     let changed = false;
+    const nowMs = Date.now();
 
     webKeys = webKeys.map((k) => {
       if (!k || String(k.token) !== String(token)) return k;
       const updated = { ...k };
-      // Bisa diisi bebas: ISO string, timestamp, atau dikosongkan
+
+      // createdAt bisa diisi bebas (ISO / timestamp / string lain) – Admin tanggung jawab
       updated.createdAt = newCreatedAt;
-      updated.expiresAt = newExpiresAt;
+
+      let finalExpiresAt = newExpiresAtRaw;
+
+      if (newExpiresAtRaw) {
+        // Coba parse sebagai durasi relatif "01h 10m 20s" → jadikan absolute ISO
+        const relMs = parseRelativeExpiresInput(newExpiresAtRaw, nowMs);
+        if (relMs) {
+          finalExpiresAt = new Date(relMs).toISOString();
+        }
+      } else {
+        // Jika dikosongkan, biarkan empty string: akan pakai defaultKeyHours di Admin view,
+        // dan di isValidate expiresAfter akan null (treated as non-expired).
+        finalExpiresAt = '';
+      }
+
+      updated.expiresAt = finalExpiresAt;
       changed = true;
       return updated;
     });
@@ -3318,7 +3414,7 @@ app.post('/admin/keys/renew-key', requireAdmin, async (req, res) => {
 
     const backBase = ip
       ? `/admin/keys?ip=${encodeURIComponent(ip)}`
-      : '/admin/keys';
+      : '/admin/keys`;
     const back =
       token && ip
         ? backBase + `#token-${encodeURIComponent(token)}`
