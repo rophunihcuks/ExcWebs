@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title><%= title || 'ExHub Key' %></title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/main.css" />
+</head>
+<body class="page-dark">
+  <div class="key-page">
+    <div class="key-shell">
+      <!-- HEADER / HERO -->
+      <header class="key-header">
+        <div class="key-header-main">
+          <h1 class="key-title">Op!Um Key</h1>
+          <p class="key-subtitle">
+            Complete the step, then generate your ExHub key for loader / script.
+          </p>
+        </div>
+
+        <% 
+          const used = (keys && keys.length) || 0;
+          const limit = maxKeys || 1;
+          const pctRaw = (used / limit) * 100;
+          const pct = Math.max(0, Math.min(100, Math.round(pctRaw)));
+        %>
+
+        <div class="key-header-progress">
+          <div class="key-progress-label">
+            Progress:&nbsp;<span><%= used %>/<%= maxKeys %></span>
+          </div>
+          <div class="key-progress-bar">
+            <div class="key-progress-bar-fill" style="width: <%= pct %>%"></div>
+          </div>
+        </div>
+
+        <div class="key-header-actions">
+          <a
+            href="<%= adsUrl %>"
+            class="key-btn key-btn-primary"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <span class="key-btn-icon">⧉</span>
+            <span>Start</span>
+          </a>
+        </div>
+      </header>
+
+      <!-- ALERT ERROR -->
+      <% if (errorMessage) { %>
+        <div class="key-alert key-alert-error">
+          <span><%= errorMessage %></span>
+        </div>
+      <% } %>
+
+      <!-- INSTRUCTIONS -->
+      <section class="key-instructions">
+        <h2 class="key-section-title">How it works</h2>
+        <ol class="key-step-list">
+          <li>Click <strong>Start</strong> to open ads / link-hub in a new tab.</li>
+          <li>Complete the required step there until finished.</li>
+          <li>Return to this page.</li>
+          <li>Click <strong>Get A New Key</strong> to generate your token.</li>
+        </ol>
+        <p class="key-note">
+          Max <strong><%= maxKeys %> active keys</strong> per IP. Expired / deleted keys will not count.
+        </p>
+      </section>
+
+      <!-- BODY -->
+      <section class="key-body">
+        <div class="key-body-header">
+          <div>
+            <h2 class="key-section-title">
+              Your Keys (<%= used %>/<%= maxKeys %>)
+            </h2>
+            <p class="key-body-subtitle">
+              Copy one active key and paste it into your loader or Roblox script.
+            </p>
+          </div>
+
+          <form
+            action="/getkey/new"
+            method="POST"
+            class="key-new-form"
+          >
+            <input
+              type="text"
+              name="userId"
+              class="key-input"
+              placeholder="Optional: Roblox UserId"
+              autocomplete="off"
+            />
+            <button type="submit" class="key-btn key-btn-ghost">
+              + Get A New Key
+            </button>
+          </form>
+        </div>
+
+        <% if (keys && keys.length > 0) { %>
+          <div class="key-table-wrapper">
+            <table class="key-table">
+              <thead>
+                <tr>
+                  <th>Token</th>
+                  <th>Time Left</th>
+                  <th>Status</th>
+                  <th class="key-col-actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% keys.forEach(function(k, idx) { %>
+                  <tr>
+                    <td class="key-cell-token">
+                      <code class="key-token"><%= k.token %></code>
+                    </td>
+                    <td><%= k.timeLeftLabel %></td>
+                    <td>
+                      <% 
+                        const status = k.status || 'Active';
+                        const badgeClass =
+                          status === 'Active'
+                            ? 'badge-success'
+                            : status === 'Expired'
+                            ? 'badge-muted'
+                            : 'badge-danger';
+                      %>
+                      <span class="badge <%= badgeClass %>"><%= status %></span>
+                    </td>
+                    <td class="key-cell-actions">
+                      <button
+                        type="button"
+                        class="key-btn key-btn-xs key-btn-outline"
+                        data-copy="<%= k.token %>"
+                      >
+                        Copy
+                      </button>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="key-empty">
+            <p>
+              No keys for this IP yet. Follow the steps above and click
+              <strong>Get A New Key</strong>.
+            </p>
+          </div>
+        <% } %>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var buttons = document.querySelectorAll('[data-copy]');
+      if (!buttons || !buttons.length) return;
+
+      buttons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var token = btn.getAttribute('data-copy') || '';
+          if (!token) return;
+
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard
+              .writeText(token)
+              .then(function () {
+                var prev = btn.textContent;
+                btn.textContent = 'Copied';
+                setTimeout(function () {
+                  btn.textContent = prev;
+                }, 1200);
+              })
+              .catch(function () {
+                var prev = btn.textContent;
+                btn.textContent = 'Failed';
+                setTimeout(function () {
+                  btn.textContent = prev;
+                }, 1200);
+              });
+          } else {
+            // Fallback
+            var dummy = document.createElement('textarea');
+            dummy.value = token;
+            dummy.style.position = 'fixed';
+            dummy.style.opacity = '0';
+            document.body.appendChild(dummy);
+            dummy.select();
+            try {
+              document.execCommand('copy');
+            } catch (e) {
+              console.warn('Copy failed', e);
+            }
+            document.body.removeChild(dummy);
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
