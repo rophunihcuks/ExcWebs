@@ -4,30 +4,42 @@
   <meta charset="UTF-8" />
   <title><%= title || 'ExHub - Generate Key' %></title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- pastikan file ada di public/css/main.css -->
   <link rel="stylesheet" href="/css/main.css" />
 </head>
 <body class="page-dark">
   <div class="key-page">
     <div class="key-shell">
-      <!-- HEADER / HERO -->
+      <!-- ================= HEADER / HERO ================= -->
       <header class="key-header">
         <div class="key-header-main">
           <h1 class="key-title">ExHub - Generate Key</h1>
           <p class="key-subtitle">
             Complete the step, then generate your ExHub key for loader / script.
+            Keys are valid for up to
+            <strong><%= (typeof defaultKeyHours !== 'undefined' ? defaultKeyHours : 24) %> hours</strong>.
           </p>
         </div>
 
-        <%
-          const used = (keys && keys.length) || 0;
-          const limit = maxKeys || 1;
-          const pctRaw = (used / limit) * 100;
+        <% 
+          // Progress ala Luarmor: 0/1 atau 1/1 (step = complete iklan + punya key)
+          const totalSteps = 1;
+          const hasKey = !!(keys && keys.length);
+          const stepsDone = hasKey ? 1 : 0;
+          const pctRaw = (stepsDone / totalSteps) * 100;
           const pct = Math.max(0, Math.min(100, Math.round(pctRaw)));
+
+          // State header kanan:
+          // - 'start'  : tombol Start (default)
+          // - 'timer'  : timer aktif (jika mau pakai, kirim headerState='timer' + headerTimerLabel)
+          // - 'done'   : sudah selesai (headerState='done')
+          const _headerState = (typeof headerState !== 'undefined' && headerState) || 'start';
+          const _timerLabel  = (typeof headerTimerLabel !== 'undefined' && headerTimerLabel) || null;
         %>
 
         <div class="key-header-progress">
           <div class="key-progress-label">
-            Progress:&nbsp;<span><%= used %>/<%= maxKeys %></span>
+            Progress:&nbsp;<span><%= stepsDone %>/<%= totalSteps %></span>
           </div>
           <div class="key-progress-bar">
             <div class="key-progress-bar-fill" style="width: <%= pct %>%"></div>
@@ -35,15 +47,30 @@
         </div>
 
         <div class="key-header-actions">
-          <a
-            href="<%= adsUrl %>"
-            class="key-btn key-btn-primary"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <span class="key-btn-icon">⧉</span>
-            <span>Start</span>
-          </a>
+          <% if (_headerState === 'timer' && _timerLabel) { %>
+            <!-- Mode timer (contoh screenshot kedua) -->
+            <button type="button" class="key-btn key-btn-outline" disabled>
+              <span class="key-btn-icon">⏳</span>
+              <span><%= _timerLabel %></span>
+            </button>
+          <% } else if (_headerState === 'done') { %>
+            <!-- Mode DONE (contoh screenshot ketiga) -->
+            <button type="button" class="key-btn key-btn-outline" disabled>
+              <span class="key-btn-icon">✔</span>
+              <span>Done</span>
+            </button>
+          <% } else { %>
+            <!-- Default: tombol Start → Linkvertise -->
+            <a
+              href="<%= adsUrl %>"
+              class="key-btn key-btn-primary"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span class="key-btn-icon">⧉</span>
+              <span>Start</span>
+            </a>
+          <% } %>
         </div>
       </header>
 
@@ -54,33 +81,35 @@
         </div>
       <% } %>
 
-      <!-- INSTRUCTIONS -->
+      <!-- ================= INSTRUCTIONS ================= -->
       <section class="key-instructions">
         <h2 class="key-section-title">How it works</h2>
         <ol class="key-step-list">
           <li>Click <strong>Start</strong> to open ads / link-hub in a new tab.</li>
-          <li>Complete the required step there until finished.</li>
-          <li>The link provider will redirect back to this page with your key.</li>
-          <li>Copy the key below and use it in your ExHub loader / script.</li>
+          <li>Complete all required steps in Linkvertise until it redirects back here.</li>
+          <li>Return to this page: <code><%= (typeof baseUrl !== 'undefined' ? baseUrl : requestHost || '') %>/generatekey</code>.</li>
+          <li>Click <strong>Get A New Key</strong> below to generate your token, then copy it into your ExHub loader / script.</li>
         </ol>
         <p class="key-note">
-          Max <strong><%= maxKeys %> active keys</strong> per IP. Expired / deleted keys will not count.
+          Max
+          <strong><%= (typeof maxKeys !== 'undefined' ? maxKeys : 1) %> active keys</strong>
+          per IP. Expired / deleted keys will not count against this limit.
         </p>
       </section>
 
-      <!-- BODY: LIST KEY -->
+      <!-- ================= BODY: LIST KEYS ================= -->
       <section class="key-body">
         <div class="key-body-header">
           <div>
             <h2 class="key-section-title">
-              Your Keys (<%= used %>/<%= maxKeys %>)
+              Your Keys (<%= (keys && keys.length) || 0 %>/<%= (typeof maxKeys !== 'undefined' ? maxKeys : 1) %>)
             </h2>
             <p class="key-body-subtitle">
               Copy one active key and paste it into your loader or Roblox script.
             </p>
           </div>
 
-          <!-- Form kecil untuk refresh / filter by userId (opsional) -->
+          <!-- Form kecil (opsional) untuk filter/refresh by userId -->
           <form
             action="/generatekey"
             method="GET"
@@ -91,6 +120,7 @@
               name="userId"
               class="key-input"
               placeholder="Optional: Roblox UserId"
+              value="<%= typeof currentUserId !== 'undefined' ? currentUserId : '' %>"
               autocomplete="off"
             />
             <button type="submit" class="key-btn key-btn-ghost">
@@ -104,7 +134,7 @@
             <table class="key-table">
               <thead>
                 <tr>
-                  <th>Token</th>
+                  <th>Your Keys</th>
                   <th>Time Left</th>
                   <th>Status</th>
                   <th class="key-col-actions">Actions</th>
@@ -116,11 +146,11 @@
                     <td class="key-cell-token">
                       <code class="key-token"><%= k.token %></code>
                     </td>
-                    <td><%= k.timeLeftLabel %></td>
+                    <td><%= k.timeLeftLabel || '-' %></td>
                     <td>
                       <%
-                        const statusLabel = k.status || 'Active';
-                        const badgeClass =
+                        var statusLabel = k.status || 'Active';
+                        var badgeClass =
                           statusLabel === 'Active'
                             ? 'badge-success'
                             : statusLabel === 'Expired'
@@ -147,17 +177,57 @@
           <div class="key-empty">
             <p>
               No keys for this IP yet. Follow the steps above, complete ads / link-hub,
-              then your key will appear here after redirect.
+              then click <strong>Get A New Key</strong> below.
             </p>
           </div>
         <% } %>
       </section>
+
+      <!-- ================= CTA: GET A NEW KEY ================= -->
+      <section class="key-body">
+        <%
+          // endpoint untuk generate key, default /getkey/new
+          const newKeyAction =
+            (typeof keyAction !== 'undefined' && keyAction) ? keyAction : '/getkey/new';
+          const canGenerate =
+            (typeof allowGenerate === 'boolean') ? allowGenerate : true;
+        %>
+
+        <div style="margin-top: 18px; display: flex; justify-content: center;">
+          <form
+            action="<%= newKeyAction %>"
+            method="POST"
+            style="display: inline-flex; flex-direction: column; align-items: center; gap: 8px;"
+          >
+            <% if (typeof currentUserId !== 'undefined' && currentUserId) { %>
+              <input type="hidden" name="userId" value="<%= currentUserId %>" />
+            <% } %>
+
+            <button
+              type="submit"
+              class="key-btn key-btn-ghost"
+              style="min-width: 220px; justify-content: center;"
+              <%= canGenerate ? '' : 'disabled' %>
+            >
+              <span class="key-btn-icon">＋</span>
+              <span>Get A New Key</span>
+            </button>
+
+            <% if (!canGenerate) { %>
+              <p class="key-note" style="text-align:center; max-width: 360px;">
+                Complete the <strong>Start</strong> step in Linkvertise first.
+                After redirecting back here, this button will be unlocked.
+              </p>
+            <% } %>
+          </form>
+        </div>
+      </section>
     </div>
   </div>
 
+  <!-- ================= SCRIPT: COPY BUTTON ================= -->
   <script>
     (function () {
-      // Copy button untuk token
       var buttons = document.querySelectorAll('[data-copy]');
       if (!buttons || !buttons.length) return;
 
@@ -184,7 +254,7 @@
                 }, 1200);
               });
           } else {
-            // Fallback
+            // Fallback lama (execCommand)
             var dummy = document.createElement('textarea');
             dummy.value = token;
             dummy.style.position = 'fixed';
