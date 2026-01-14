@@ -43,7 +43,7 @@ async function kvRequest(pathPart) {
       }
     });
 
-      if (!res.ok) {
+    if (!res.ok) {
       const text = await res.text().catch(() => '');
       console.error('KV error', res.status, text);
       return null;
@@ -3414,7 +3414,7 @@ app.post('/admin/keys/renew-key', requireAdmin, async (req, res) => {
 
     const backBase = ip
       ? `/admin/keys?ip=${encodeURIComponent(ip)}`
-      : '/admin/keys`;
+      : '/admin/keys';
     const back =
       token && ip
         ? backBase + `#token-${encodeURIComponent(token)}`
