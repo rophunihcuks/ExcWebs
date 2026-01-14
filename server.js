@@ -891,28 +891,45 @@ function formatDualTimeLabelMs(ms) {
   }
 }
 
-// Parser format relatif admin: "01h 10m 20s" → ms absolute (now + durasi)
+// Parser format relatif admin: "HH:MM:SS" atau "1h 10m 20s" → ms absolute (now + durasi)
 function parseRelativeExpiresInput(raw, nowMs) {
   if (!raw) return null;
   const str = String(raw).trim();
   if (!str) return null;
 
-  // Mendukung variasi: "1h 10m 20s", "1h10m20s", "20m 0s", "30m"
+  // 1) Format "HH:MM:SS" (contoh: "00:20:20")
+  const hhmmss = str.match(/^(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
+  if (hhmmss) {
+    let h = parseInt(hhmmss[1], 10) || 0;
+    let m = parseInt(hhmmss[2], 10) || 0;
+    let s = parseInt(hhmmss[3], 10) || 0;
+
+    if (h < 0) h = 0;
+    if (m < 0) m = 0;
+    if (s < 0) s = 0;
+
+    const totalMs = (h * 3600 + m * 60 + s) * 1000;
+    if (totalMs <= 0) return null;
+
+    return nowMs + totalMs;
+  }
+
+  // 2) Format lama: "1h 10m 20s", "20m", "30m 5s", dll.
   const re =
-    /^\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?\s*(?:(\d+)\s*s(?:ec(?:onds?)?)?)?\s*$/i;
-  const m = str.match(re);
-  if (!m) return null;
+    /^\s*(?:(\d+)\s*h(?:hours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?\s*(?:(\d+)\s*s(?:ec(?:onds?)?)?)?\s*$/i;
+  const m2 = str.match(re);
+  if (!m2) return null;
 
-  const h = m[1] ? parseInt(m[1], 10) : 0;
-  const min = m[2] ? parseInt(m[2], 10) : 0;
-  const s = m[3] ? parseInt(m[3], 10) : 0;
+  const h2 = m2[1] ? parseInt(m2[1], 10) : 0;
+  const min2 = m2[2] ? parseInt(m2[2], 10) : 0;
+  const s2 = m2[3] ? parseInt(m2[3], 10) : 0;
 
-  if (Number.isNaN(h) || Number.isNaN(min) || Number.isNaN(s)) return null;
+  if (Number.isNaN(h2) || Number.isNaN(min2) || Number.isNaN(s2)) return null;
 
-  const totalMs = (h * 3600 + min * 60 + s) * 1000;
-  if (totalMs <= 0) return null;
+  const totalMs2 = (h2 * 3600 + min2 * 60 + s2) * 1000;
+  if (totalMs2 <= 0) return null;
 
-  return nowMs + totalMs;
+  return nowMs + totalMs2;
 }
 
 // ---- stats helpers ------------------------------------------------
@@ -2387,6 +2404,13 @@ app.get('/api/isValidate/:key', async (req, res) => {
     const redeemedList = await loadRedeemedKeys();
     const webKeys = await loadWebKeys();
     const deletedList = await loadDeletedKeys();
+    const siteConfig = await loadSiteConfig();
+
+    const nowMs = Date.now();
+    const defaultKeyHours =
+      typeof siteConfig.defaultKeyHours === 'number'
+        ? siteConfig.defaultKeyHours
+        : DEFAULT_KEY_HOURS;
 
     // Cari data key dari exec-users (keyToken)
     let sourceExec = null;
@@ -2408,7 +2432,7 @@ app.get('/api/isValidate/:key', async (req, res) => {
       }
     }
 
-    // Kalau tidak ketemu di web-keys, cek redeemed-keys.json (sistem lama)
+    // Kalau tidak ketemu di web-keys maupun exec-users → cek redeemed-keys lama
     let redeemed = null;
     if (!webEntry && !sourceExec) {
       for (const k of redeemedList) {
@@ -2445,18 +2469,26 @@ app.get('/api/isValidate/:key', async (req, res) => {
       return fallbackMs;
     };
 
-    const nowMs = Date.now();
-
     let valid = false;
-    let deleted = !!deletedEntry;
+    let deleted = false;
     let info = null;
 
     if (webEntry) {
-      // Sumber utama expiry: web-keys (bisa diubah lewat Admin)
+      // ====== Sumber utama expiry: web-keys (Generate Key) ======
       const createdMs = toMs(webEntry.createdAt, nowMs);
-      const expiresMs = toMs(webEntry.expiresAt, null);
-      const expired = expiresMs != null && expiresMs <= nowMs;
 
+      let expiresMs = null;
+      if (webEntry.expiresAfter != null) {
+        expiresMs = toMs(webEntry.expiresAfter, null);
+      }
+      if (expiresMs == null) {
+        expiresMs = toMs(webEntry.expiresAt, null);
+      }
+      if (expiresMs == null && createdMs && defaultKeyHours > 0) {
+        expiresMs = createdMs + defaultKeyHours * 60 * 60 * 1000;
+      }
+
+      const expired = expiresMs != null && expiresMs <= nowMs;
       valid = !expired;
 
       let userIdNum = null;
@@ -2480,7 +2512,7 @@ app.get('/api/isValidate/:key', async (req, res) => {
         expiresAfter: expiresMs
       };
     } else if (sourceExec) {
-      // Fallback ke exec-users (key sudah dipakai, tapi bukan web-keys atau sudah manual)
+      // ====== Fallback ke exec-users (key sudah dipakai) ======
       valid = true;
 
       const createdMs = toMs(sourceExec.keyCreatedAt, nowMs);
@@ -2498,7 +2530,7 @@ app.get('/api/isValidate/:key', async (req, res) => {
         expiresAfter: expiresMs
       };
     } else if (redeemed) {
-      // Sistem redeem lama
+      // ====== Sistem redeem lama ======
       valid = true;
 
       const createdMs = toMs(redeemed.redeemedAt, nowMs);
@@ -2512,7 +2544,7 @@ app.get('/api/isValidate/:key', async (req, res) => {
         expiresAfter: null
       };
     } else {
-      // key tidak dikenal
+      // ====== key tidak dikenal ======
       valid = false;
       info = null;
     }
@@ -3379,14 +3411,14 @@ app.post('/admin/keys/update-key', requireAdmin, async (req, res) => {
       let finalExpiresAt = newExpiresAtRaw;
 
       if (newExpiresAtRaw) {
-        // Coba parse sebagai durasi relatif "01h 10m 20s" → jadikan absolute ISO
+        // Coba parse sebagai durasi relatif "01:10:20" / "1h 10m 20s" → jadikan absolute ISO
         const relMs = parseRelativeExpiresInput(newExpiresAtRaw, nowMs);
         if (relMs) {
           finalExpiresAt = new Date(relMs).toISOString();
         }
       } else {
         // Jika dikosongkan, biarkan empty string: akan pakai defaultKeyHours di Admin view,
-        // dan di isValidate expiresAfter akan null (treated as non-expired).
+        // dan di isValidate expiresAfter akan dihitung dari defaultKeyHours.
         finalExpiresAt = '';
       }
 
