@@ -20,8 +20,9 @@
     <nav class="nav-links">
       <a href="/">Home</a>
       <a href="/scripts" class="nav-active">Scripts</a>
-      <a href="/get-key">Get Key</a>
-      <a href="/admin/login" class="nav-pill">Sign In</a>
+      <a href="/get-key">Get Key Work.Ink</a>
+      <a href="/generatekey">Get Key Linkvertise</a>
+      <a href="/admin/login" class="nav-pill">Login</a>
     </nav>
   </div>
 </header>
@@ -87,11 +88,11 @@
             </div>
 
             <div class="script-actions">
-              <!-- Copy Loader: loader disesuaikan per-id script, domain auto dari origin -->
+              <!-- Copy Loader: loader disesuaikan per-id script -->
               <button
                 class="btn-primary btn-small copy-loader-btn"
                 type="button"
-                data-script-id="<%= script.id %>"
+                data-loader='loadstring(game:HttpGet("https://excc-webs.vercel.app/api/script/<%= script.id %>", true))()'
               >
                 Copy Loader
               </button>
@@ -137,20 +138,6 @@
 
 <!-- Copy Loader + Live Stats -->
 <script>
-  // Helper: ambil base URL loader dari origin dengan fallback ke domain default
-  function getLoaderBaseUrl() {
-    try {
-      var origin = (window && window.location && window.location.origin) ? window.location.origin : '';
-      if (!origin || origin.indexOf('http') !== 0) {
-        origin = 'https://exc-webs.vercel.app';
-      }
-      origin = origin.replace(/\/+$/, ''); // buang trailing slash
-      return origin;
-    } catch (e) {
-      return 'https://exc-webs.vercel.app';
-    }
-  }
-
   // === COPY LOADER BUTTONS ==========================================
   (function () {
     const buttons = document.querySelectorAll('.copy-loader-btn');
@@ -188,11 +175,8 @@
 
     buttons.forEach(function (btn) {
       btn.addEventListener('click', function () {
-        const scriptId = btn.getAttribute('data-script-id');
-        if (!scriptId) return;
-
-        const baseUrl = getLoaderBaseUrl();
-        const loader = 'loadstring(game:HttpGet("' + baseUrl + '/api/script/' + scriptId + '", true))()';
+        const loader = btn.getAttribute('data-loader');
+        if (!loader) return;
 
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard
