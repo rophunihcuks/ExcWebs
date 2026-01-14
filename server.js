@@ -1226,11 +1226,11 @@ app.get('/generatekey', async (req, res) => {
       }
     }
 
-    // ================== CHECKPOINT IKLAN ==================
-    // REQUIRE_ADS_CHECKPOINT=1 → wajib ada tanda “done/ok/ads/checkpoint”
-    // dari Linkvertise (redirect ke /generatekey?done=1).
-    let sessionOk = false;
+    // ================== CHECKPOINT IKLAN + SANITIZE QUERY ==================
+
     let allowGenerate = true;
+    let headerState = 'start';
+    const headerTimerLabel = null;
 
     if (REQUIRE_ADS_CHECKPOINT) {
       const fromAds =
@@ -1240,26 +1240,27 @@ app.get('/generatekey', async (req, res) => {
         req.query.ads === '1';
 
       if (fromAds) {
-        // tandai di session bahwa user BARU SAJA selesai iklan
+        // Tandai bahwa sesi ini sudah melewati iklan
         req.session.generateKeyAdsOk = true;
+
+        // Redirect ke URL bersih tanpa ?done=1 dll
+        const params = [];
+        if (currentUserId) {
+          params.push('userId=' + encodeURIComponent(currentUserId));
+        }
+        const qs = params.length ? '?' + params.join('&') : '';
+        return res.redirect('/generatekey' + qs);
       }
 
-      sessionOk = !!req.session.generateKeyAdsOk;
-      // HANYA aktif kalau sessionOk = true
+      const sessionOk = !!req.session.generateKeyAdsOk;
       allowGenerate = sessionOk;
+      headerState = sessionOk ? 'done' : 'start';
+    } else {
+      // Kalau checkpoint tidak dipakai, tombol Get A New Key selalu aktif
+      // dan progress penuh (1/1)
+      allowGenerate = true;
+      headerState = 'done';
     }
-
-    // HEADER STATE:
-    // - Jika checkpoint aktif: 'done' saat sudah balik dari iklan (sebelum ambil key),
-    //   'start' jika belum / sudah dipakai (flag direset setelah ambil key).
-    // - Jika checkpoint nonaktif: 'done' kalau sudah punya key, 'start' kalau belum.
-    const headerState = REQUIRE_ADS_CHECKPOINT
-      ? sessionOk
-        ? 'done'
-        : 'start'
-      : myKeys.length > 0
-      ? 'done'
-      : 'start';
 
     return res.render('generatekey', {
       title: 'ExHub - Generate Key',
@@ -1269,7 +1270,7 @@ app.get('/generatekey', async (req, res) => {
       errorMessage: (req.query.errorMessage || '').trim() || null,
       defaultKeyHours,
       headerState,
-      headerTimerLabel: null, // belum pakai mode timer
+      headerTimerLabel,
       allowGenerate,
       keyAction: '/getkey/new',
       currentUserId,
