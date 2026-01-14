@@ -59,22 +59,21 @@
         <div class="key-header-actions">
           <% if (_headerState === 'timer' && _timerLabel) { %>
             <!-- Mode timer (opsional) -->
-            <button type="button" class="key-btn key-btn-outline" disabled>
+            <button type="button" class="key-btn key-btn-outline" disabled aria-disabled="true">
               <span class="key-btn-icon">⏳</span>
               <span><%= _timerLabel %></span>
             </button>
           <% } else if (_headerState === 'done') { %>
             <!-- Mode DONE: iklan / checkpoint sudah selesai -->
-            <button type="button" class="key-btn key-btn-outline" disabled>
+            <button type="button" class="key-btn key-btn-outline" disabled aria-disabled="true">
               <span class="key-btn-icon">✔</span>
               <span>Done</span>
             </button>
           <% } else { %>
-            <!-- Default: tombol Start → Linkvertise / ads -->
+            <!-- Default: tombol Start → Linkvertise / ads (TAB YANG SAMA) -->
             <a
               href="<%= adsUrl %>"
               class="key-btn key-btn-primary"
-              target="_blank"
               rel="noopener noreferrer"
             >
               <span class="key-btn-icon">⧉</span>
@@ -95,17 +94,17 @@
       <section class="key-instructions">
         <h2 class="key-section-title">How it works</h2>
         <ol class="key-step-list">
-          <li>Click <strong>Start</strong> to open ads / link-hub in a new tab.</li>
+          <li>Click <strong>Start</strong> to open the ads / link-hub.</li>
           <li>Complete all required steps in Linkvertise until it redirects back here.</li>
           <li>
-            Return to this page:
+            After redirect, you should land on:
             <code>
               <%= (typeof baseUrl !== 'undefined' && baseUrl)
                     ? baseUrl + '/generatekey'
                     : ((requestHost || '') ? ('https://' + requestHost + '/generatekey') : '/generatekey') %>
             </code>.
           </li>
-          <li>Click <strong>Get A New Key</strong> below to generate your token, then copy it into your ExHub loader / script.</li>
+          <li>On that page, click <strong>Get A New Key</strong> to generate your token, then copy it into your ExHub loader / script.</li>
         </ol>
         <p class="key-note">
           Max
@@ -233,7 +232,7 @@
               type="submit"
               class="key-btn key-btn-ghost"
               style="min-width: 220px; justify-content: center;"
-              <%= canGenerate ? '' : 'disabled' %>
+              <%= canGenerate ? '' : 'disabled aria-disabled="true"' %>
             >
               <span class="key-btn-icon">＋</span>
               <span>Get A New Key</span>
