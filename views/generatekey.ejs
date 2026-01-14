@@ -18,7 +18,7 @@
           </p>
         </div>
 
-        <% 
+        <%
           const used = (keys && keys.length) || 0;
           const limit = maxKeys || 1;
           const pctRaw = (used / limit) * 100;
@@ -60,15 +60,15 @@
         <ol class="key-step-list">
           <li>Click <strong>Start</strong> to open ads / link-hub in a new tab.</li>
           <li>Complete the required step there until finished.</li>
-          <li>Return to this page.</li>
-          <li>Click <strong>Get A New Key</strong> to generate your token.</li>
+          <li>The link provider will redirect back to this page with your key.</li>
+          <li>Copy the key below and use it in your ExHub loader / script.</li>
         </ol>
         <p class="key-note">
           Max <strong><%= maxKeys %> active keys</strong> per IP. Expired / deleted keys will not count.
         </p>
       </section>
 
-      <!-- BODY -->
+      <!-- BODY: LIST KEY -->
       <section class="key-body">
         <div class="key-body-header">
           <div>
@@ -80,9 +80,10 @@
             </p>
           </div>
 
+          <!-- Optional: form kecil (GET saja, tidak generate apa-apa di backend) -->
           <form
-            action="/getkey/new"
-            method="POST"
+            action="/generatekey"
+            method="GET"
             class="key-new-form"
           >
             <input
@@ -93,7 +94,7 @@
               autocomplete="off"
             />
             <button type="submit" class="key-btn key-btn-ghost">
-              + Get A New Key
+              Refresh
             </button>
           </form>
         </div>
@@ -117,16 +118,16 @@
                     </td>
                     <td><%= k.timeLeftLabel %></td>
                     <td>
-                      <% 
-                        const status = k.status || 'Active';
+                      <%
+                        const statusLabel = k.status || 'Active';
                         const badgeClass =
-                          status === 'Active'
+                          statusLabel === 'Active'
                             ? 'badge-success'
-                            : status === 'Expired'
+                            : statusLabel === 'Expired'
                             ? 'badge-muted'
                             : 'badge-danger';
                       %>
-                      <span class="badge <%= badgeClass %>"><%= status %></span>
+                      <span class="badge <%= badgeClass %>"><%= statusLabel %></span>
                     </td>
                     <td class="key-cell-actions">
                       <button
@@ -145,17 +146,52 @@
         <% } else { %>
           <div class="key-empty">
             <p>
-              No keys for this IP yet. Follow the steps above and click
-              <strong>Get A New Key</strong>.
+              No keys for this IP yet. Follow the steps above, complete ads / link-hub,
+              then your key will appear here after redirect.
             </p>
           </div>
         <% } %>
+      </section>
+
+      <!-- BODY JSON TEMPLATE -->
+      <section class="key-body key-body-json">
+        <div class="key-body-header">
+          <div>
+            <h2 class="key-section-title">Body JSON Template</h2>
+            <p class="key-body-subtitle">
+              Use this JSON as the body when calling
+              <code>/api/exec</code> from your Roblox loader.
+            </p>
+          </div>
+        </div>
+
+        <div class="key-json-wrapper">
+          <pre class="key-json-block"><code><%- exampleJson %></code></pre>
+        </div>
+      </section>
+
+      <!-- LOADER SCRIPT EXAMPLE -->
+      <section class="key-body key-body-json">
+        <div class="key-body-header">
+          <div>
+            <h2 class="key-section-title">Loader Script Example</h2>
+            <p class="key-body-subtitle">
+              Example Roblox script that sends the JSON above to
+              <code>/api/exec</code> and then executes your ExHub script.
+            </p>
+          </div>
+        </div>
+
+        <div class="key-json-wrapper">
+          <pre class="key-json-block"><code><%- loaderSnippet %></code></pre>
+        </div>
       </section>
     </div>
   </div>
 
   <script>
     (function () {
+      // Copy button untuk token
       var buttons = document.querySelectorAll('[data-copy]');
       if (!buttons || !buttons.length) return;
 
