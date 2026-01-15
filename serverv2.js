@@ -5,7 +5,7 @@
 const crypto = require("crypto");
 
 // ---------------------------------------------------------
-// Helper: base API ExHub (sama pola dengan index.js bot)
+// Helper: base API ExHub (sama pola dengan index.js bot / server.js)
 // ---------------------------------------------------------
 function resolveExHubApiBase() {
   const SITE_BASE =
@@ -19,25 +19,89 @@ function resolveExHubApiBase() {
 }
 
 // ---------------------------------------------------------
-// Konfigurasi Free Key (in-memory store)
-// (Jika proses restart / multi-instance load balancing,
-//  map ini tidak persisten – ini hanya untuk 1 instance proses.)
+// Upstash KV khusus Free Key
+// Pola DISESUAIKAN dengan server.js:
+// - KV_REST_API_URL = base URL
+// - GET:  {KV_REST_API_URL}/GET/<key>
+// - SET:  {KV_REST_API_URL}/SET/<key>/<value>
+// Header Authorization: Bearer KV_REST_API_TOKEN
+// ---------------------------------------------------------
+const KV_REST_API_URL = process.env.KV_REST_API_URL;
+const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN;
+const hasFreeKeyKV = !!(KV_REST_API_URL && KV_REST_API_TOKEN);
+
+async function kvRequest(pathPart) {
+  if (!hasFreeKeyKV || typeof fetch === "undefined") return null;
+
+  const url = `${KV_REST_API_URL}/${pathPart}`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${KV_REST_API_TOKEN}`,
+      },
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error("[serverv2] KV error", res.status, text);
+      return null;
+    }
+
+    const data = await res.json().catch(() => null);
+    if (data && Object.prototype.hasOwnProperty.call(data, "result")) {
+      return data.result;
+    }
+    return null;
+  } catch (err) {
+    console.error("[serverv2] KV request failed:", err);
+    return null;
+  }
+}
+
+function kvPath(cmd, ...segments) {
+  const encoded = segments.map((s) => encodeURIComponent(String(s)));
+  return `${cmd}/${encoded.join("/")}`;
+}
+
+async function kvGetJson(key) {
+  const raw = await kvRequest(kvPath("GET", key));
+  if (raw == null || typeof raw !== "string" || raw === "") return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function kvSetJson(key, value) {
+  const raw = JSON.stringify(value);
+  await kvRequest(kvPath("SET", key, raw));
+}
+
+// ---------------------------------------------------------
+// Konfigurasi Free Key (persisten via Upstash, mirip pola server.js)
 // ---------------------------------------------------------
 
 const FREE_KEY_PREFIX = "EXHUBFREE";
-const FREE_KEY_TTL_HOURS = 3;            // default 3 jam
+// TTL default free key (jam) – terpisah dari defaultKeyHours generate key biasa
+const FREE_KEY_TTL_HOURS = 3;
 const FREE_KEY_MAX_PER_USER = 5;
 
 // REQUIREFREEKEY_ADS_CHECKPOINT = "1" (default) → wajib iklan dulu
 const REQUIRE_FREEKEY_ADS_CHECKPOINT =
   String(process.env.REQUIREFREEKEY_ADS_CHECKPOINT || "1") === "1";
 
-// Store in-memory
-// token -> { token, userId, provider, createdAt, byIp, linkId, expiresAfter, deleted, valid }
-const freeKeyStore = new Map();
-
 function nowMs() {
   return Date.now();
+}
+
+// Prefix key di Upstash (disamakan pola "exhub:*" seperti server.js)
+function userIndexKey(userId) {
+  return `exhub:freekey:user:${userId}`;
+}
+
+function tokenKey(token) {
+  return `exhub:freekey:token:${token}`;
 }
 
 function generateFreeKeyToken() {
@@ -53,15 +117,19 @@ function generateFreeKeyToken() {
   return `${FREE_KEY_PREFIX}-${chunk(3)}-${chunk(4)}-${chunk(5)}`;
 }
 
-function createFreeKeyRecord({ userId, provider, ip }) {
+// Buat record baru di KV (token unik)
+async function createFreeKeyRecordPersistent({ userId, provider, ip }) {
   const createdAt = nowMs();
   const ttlMs = FREE_KEY_TTL_HOURS * 60 * 60 * 1000;
   const expiresAfter = createdAt + ttlMs;
 
   let token;
-  do {
+  // pastikan unik di KV (kemungkinan tabrakan kecil, tapi aman)
+  for (;;) {
     token = generateFreeKeyToken();
-  } while (freeKeyStore.has(token));
+    const existing = await kvGetJson(tokenKey(token));
+    if (!existing) break;
+  }
 
   const rec = {
     token,
@@ -75,12 +143,25 @@ function createFreeKeyRecord({ userId, provider, ip }) {
     valid: true,
   };
 
-  freeKeyStore.set(token, rec);
+  // Simpan record token
+  await kvSetJson(tokenKey(token), rec);
+
+  // Update index per-user (array token)
+  const idxKey = userIndexKey(userId);
+  let index = await kvGetJson(idxKey);
+  if (!Array.isArray(index)) index = [];
+  if (!index.includes(token)) {
+    index.push(token);
+    await kvSetJson(idxKey, index);
+  }
+
   return rec;
 }
 
-function extendFreeKey(token) {
-  const rec = freeKeyStore.get(token);
+// Perpanjang TTL sebuah token
+async function extendFreeKeyPersistent(token) {
+  const key = tokenKey(token);
+  const rec = await kvGetJson(key);
   if (!rec) return null;
 
   const now = nowMs();
@@ -90,19 +171,23 @@ function extendFreeKey(token) {
   rec.valid = true;
   rec.deleted = false;
 
-  freeKeyStore.set(token, rec);
+  await kvSetJson(key, rec);
   return rec;
 }
 
-// Ambil semua free key milik user dari store
+// Ambil semua free key milik user dari KV
 // Return: [{ token, timeLeftLabel, status, expiresAfter }]
-function getFreeKeysForUser(userId) {
-  const result = [];
+async function getFreeKeysForUserPersistent(userId) {
+  const idxKey = userIndexKey(userId);
+  const index = await kvGetJson(idxKey);
+  const tokens = Array.isArray(index) ? index : [];
   const now = nowMs();
-  const uid = String(userId);
+  const result = [];
 
-  for (const rec of freeKeyStore.values()) {
-    if (String(rec.userId) !== uid) continue;
+  for (const token of tokens) {
+    if (!token) continue;
+    const rec = await kvGetJson(tokenKey(token));
+    if (!rec) continue;
 
     const msLeft = rec.expiresAfter - now;
     const isExpired = msLeft <= 0 || rec.deleted;
@@ -137,11 +222,12 @@ function getFreeKeysForUser(userId) {
 }
 
 // ---------------------------------------------------------
-// Helper: Ads / checkpoint state di session
+// Helper: Ads / checkpoint state di session (per provider)
 // Struktur: req.session.freeKeyAdsState = {
 //   workink:    { ts: <number>, used: <bool> },
-//   linkvertise: { ts: <number>, used: <bool> }
+//   linkvertise:{ ts: <number>, used: <bool> }
 // }
+// 1 checkpoint = 1 aksi (Generate ATAU Renew)
 // ---------------------------------------------------------
 
 function canonicalAdsProvider(raw) {
@@ -181,7 +267,7 @@ function markAdsUsed(req, provider) {
 }
 
 // ---------------------------------------------------------
-// Modul utama
+// Modul utama: mount ke Express app (dipanggil dari server.js)
 // ---------------------------------------------------------
 module.exports = function mountDiscordOAuth(app) {
   // =========================
@@ -210,9 +296,15 @@ module.exports = function mountDiscordOAuth(app) {
     );
   }
 
+  if (!hasFreeKeyKV) {
+    console.warn(
+      "[serverv2] PERINGATAN: KV_REST_API_URL / KV_REST_API_TOKEN tidak diset – Free Key TIDAK akan persisten."
+    );
+  }
+
   // =========================
-  // MIDDLEWARE: res.locals.user
-  // =========================
+  // MIDDLEWARE: res.locals.user (untuk header EJS, dll)
+// =========================
   app.use((req, res, next) => {
     res.locals.user = (req.session && req.session.discordUser) || null;
     next();
@@ -392,10 +484,10 @@ module.exports = function mountDiscordOAuth(app) {
     const adsUrl =
       adsProvider === "linkvertise" ? LINKVERTISE_ADS_URL : WORKINK_ADS_URL;
 
-    // Free key dari in-memory store
-    const freeKeys = getFreeKeysForUser(userId);
+    // Free key dari KV (persisten, key di bawah exhub:freekey:*)
+    const freeKeys = await getFreeKeysForUserPersistent(userId);
     const maxKeys = FREE_KEY_MAX_PER_USER;
-    const keys = freeKeys; // sudah berbentuk {token,timeLeftLabel,status,expiresAfter}
+    const keys = freeKeys; // {token,timeLeftLabel,status,expiresAfter}
 
     const capacityOk = keys.length < maxKeys;
 
@@ -440,12 +532,14 @@ module.exports = function mountDiscordOAuth(app) {
     const redirectBase = "/getfreekey?ads=" + encodeURIComponent(adsProvider);
 
     try {
-      const existing = getFreeKeysForUser(userId);
+      const existing = await getFreeKeysForUserPersistent(userId);
       if (existing.length >= FREE_KEY_MAX_PER_USER) {
         return res.redirect(
           redirectBase +
             "&error=" +
-            encodeURIComponent("Key slot penuh. Biarkan beberapa key expired dulu.")
+            encodeURIComponent(
+              "Key slot penuh. Biarkan beberapa key expired dulu."
+            )
         );
       }
 
@@ -455,14 +549,20 @@ module.exports = function mountDiscordOAuth(app) {
           return res.redirect(
             redirectBase +
               "&error=" +
-              encodeURIComponent("Selesaikan iklan terlebih dahulu sebelum generate key.")
+              encodeURIComponent(
+                "Selesaikan iklan terlebih dahulu sebelum generate key."
+              )
           );
         }
       }
 
       const ipHeader = req.headers["x-forwarded-for"] || req.ip || "";
       const ip = String(ipHeader).split(",")[0].trim();
-      createFreeKeyRecord({ userId, provider: adsProvider, ip });
+      await createFreeKeyRecordPersistent({
+        userId,
+        provider: adsProvider,
+        ip,
+      });
 
       // Satu checkpoint habis dipakai 1 aksi
       markAdsUsed(req, adsProvider);
@@ -498,7 +598,7 @@ module.exports = function mountDiscordOAuth(app) {
     }
 
     try {
-      const rec = freeKeyStore.get(token);
+      const rec = await kvGetJson(tokenKey(token));
       if (!rec || String(rec.userId) !== String(userId)) {
         return res.redirect(
           redirectBase +
@@ -513,12 +613,14 @@ module.exports = function mountDiscordOAuth(app) {
           return res.redirect(
             redirectBase +
               "&error=" +
-              encodeURIComponent("Selesaikan iklan terlebih dahulu sebelum renew key.")
+              encodeURIComponent(
+                "Selesaikan iklan terlebih dahulu sebelum renew key."
+              )
           );
         }
       }
 
-      extendFreeKey(token);
+      await extendFreeKeyPersistent(token);
       // Satu checkpoint habis dipakai 1 aksi
       markAdsUsed(req, adsProvider);
 
@@ -535,11 +637,23 @@ module.exports = function mountDiscordOAuth(app) {
 
   // --------------------------------------------------
   // API: GET /api/freekey/isValidate/:key
-  // --------------------------------------------------
-  app.get("/api/freekey/isValidate/:key", (req, res) => {
-    const token = req.params.key;
-    const rec = freeKeyStore.get(token);
+  // Pola JSON mirip /api/isValidate di server.js:
+  // { valid, deleted, expired, info: { token, createdAt, byIp, userId, expiresAfter, linkId } }
+// --------------------------------------------------
+  app.get("/api/freekey/isValidate/:key", async (req, res) => {
+    const token = (req.params.key || "").trim();
     const now = nowMs();
+
+    if (!token) {
+      return res.json({
+        valid: false,
+        deleted: false,
+        expired: false,
+        info: null,
+      });
+    }
+
+    const rec = await kvGetJson(tokenKey(token));
 
     if (!rec) {
       return res.json({
