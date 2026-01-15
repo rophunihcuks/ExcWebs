@@ -405,6 +405,11 @@ body.page-dark::-webkit-scrollbar-thumb {
   opacity: 1;
 }
 
+.btn-dashboard-link {
+  padding-inline: 12px;
+  font-size: 0.85rem;
+}
+
 /* ------------------------------
    Auth (Sign In / Login Required)
    ------------------------------ */
