@@ -32,7 +32,8 @@ const REQUIRE_FREEKEY_ADS_CHECKPOINT =
   String(process.env.REQUIREFREEKEY_ADS_CHECKPOINT || "1") === "1";
 
 // Store in-memory
-const freeKeyStore = new Map(); // token -> record
+// token -> { token, userId, provider, createdAt, byIp, linkId, expiresAfter, deleted, valid }
+const freeKeyStore = new Map();
 
 function nowMs() {
   return Date.now();
@@ -63,7 +64,7 @@ function createFreeKeyRecord({ userId, provider, ip }) {
 
   const rec = {
     token,
-    userId,
+    userId: String(userId),
     provider,
     createdAt,
     byIp: ip || null,
@@ -96,9 +97,10 @@ function extendFreeKey(token) {
 function getFreeKeysForUser(userId) {
   const result = [];
   const now = nowMs();
+  const uid = String(userId);
 
   for (const rec of freeKeyStore.values()) {
-    if (String(rec.userId) !== String(userId)) continue;
+    if (String(rec.userId) !== uid) continue;
 
     const msLeft = rec.expiresAfter - now;
     const isExpired = msLeft <= 0 || rec.deleted;
@@ -121,7 +123,7 @@ function getFreeKeysForUser(userId) {
     });
   }
 
-  // Sort: Active dulu, lalu yang paling lama expired/akan expired di bawah
+  // Sort: Active dulu, lalu yang paling dekat expired
   result.sort((a, b) => {
     const sa = a.status === "Active" ? 0 : 1;
     const sb = b.status === "Active" ? 0 : 1;
@@ -238,7 +240,7 @@ module.exports = function mountDiscordOAuth(app) {
     next();
   }
 
-  // Ambil data key user dari ExHub API (contoh: /api/bot/user-info)
+  // Ambil data key user dari ExHub API (untuk dashboard utama)
   async function getUserKeys(discordUser) {
     const result = {
       total: 0,
@@ -285,13 +287,11 @@ module.exports = function mountDiscordOAuth(app) {
       result.total = keys.length;
       result.linked = keys.length;
 
-      // heuristik: active = belum deleted && (valid !== false)
       const activeKeys = keys.filter(
         (k) => !k.deleted && k.valid !== false && k.revoked !== true
       );
       result.active = activeKeys.length;
 
-      // premium = tier === "premium"
       const premiumKeys = keys.filter((k) => {
         const tier = String(k.tier || k.type || "").toLowerCase();
         return tier.includes("premium") || tier.includes("vip");
@@ -308,7 +308,7 @@ module.exports = function mountDiscordOAuth(app) {
         return {
           key: String(label),
           provider: k.provider || k.source || "ExHub",
-          timeLeft: k.timeLeft || "-", // kalau API punya field ini
+          timeLeft: k.timeLeft || "-",
           status:
             k.deleted || k.revoked
               ? "Deleted"
@@ -367,7 +367,6 @@ module.exports = function mountDiscordOAuth(app) {
     const queryAds = req.query.ads;
     let adsProvider = canonicalAdsProvider(queryAds);
 
-    // Simpan / gunakan lastAdsProvider hanya jika query ads ada
     if (req.session) {
       if (queryAds) {
         req.session.lastFreeKeyAdsProvider = adsProvider;
@@ -441,7 +440,6 @@ module.exports = function mountDiscordOAuth(app) {
     const redirectBase = "/getfreekey?ads=" + encodeURIComponent(adsProvider);
 
     try {
-      // Cek kapasitas per user
       const existing = getFreeKeysForUser(userId);
       if (existing.length >= FREE_KEY_MAX_PER_USER) {
         return res.redirect(
@@ -451,7 +449,6 @@ module.exports = function mountDiscordOAuth(app) {
         );
       }
 
-      // Cek checkpoint iklan
       if (REQUIRE_FREEKEY_ADS_CHECKPOINT) {
         const adsState = getAdsState(req, adsProvider);
         if (!adsState || adsState.used) {
@@ -463,12 +460,10 @@ module.exports = function mountDiscordOAuth(app) {
         }
       }
 
-      // Generate record baru
       const ipHeader = req.headers["x-forwarded-for"] || req.ip || "";
       const ip = String(ipHeader).split(",")[0].trim();
       createFreeKeyRecord({ userId, provider: adsProvider, ip });
 
-      // Setelah sukses generate → flag adsUsed = true
       markAdsUsed(req, adsProvider);
 
       return res.redirect(redirectBase);
@@ -534,6 +529,42 @@ module.exports = function mountDiscordOAuth(app) {
           encodeURIComponent("Failed to renew key.")
       );
     }
+  });
+
+  // --------------------------------------------------
+  // API: GET /api/freekey/isValidate/:key
+  // --------------------------------------------------
+  app.get("/api/freekey/isValidate/:key", (req, res) => {
+    const token = req.params.key;
+    const rec = freeKeyStore.get(token);
+    const now = nowMs();
+
+    if (!rec) {
+      return res.json({
+        valid: false,
+        deleted: false,
+        expired: false,
+        info: null,
+      });
+    }
+
+    const expired = rec.expiresAfter <= now;
+    const deleted = !!rec.deleted;
+    const valid = !!rec.valid && !deleted && !expired;
+
+    return res.json({
+      valid,
+      deleted,
+      expired,
+      info: {
+        token: rec.token,
+        createdAt: rec.createdAt,
+        byIp: rec.byIp,
+        linkId: rec.linkId,
+        userId: rec.userId,
+        expiresAfter: rec.expiresAfter,
+      },
+    });
   });
 
   // =========================
@@ -676,6 +707,6 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   console.log(
-    "[serverv2] Discord OAuth + Dashboard + GetFreeKey routes mounted."
+    "[serverv2] Discord OAuth + Dashboard + GetFreeKey + FreeKey API routes mounted."
   );
 };
