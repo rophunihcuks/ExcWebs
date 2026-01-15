@@ -34,7 +34,7 @@
             <span class="user-name"><%= user.global_name || user.username %></span>
           </div>
 
-          <!-- Link cepat ke Get Free Key -->
+          <!-- Shortcut balik ke Get Free Key -->
           <a href="/getfreekey?ads=workink" class="btn btn-ghost" style="margin:0 8px;">
             Get Free Key
           </a>
@@ -93,6 +93,7 @@
       </div>
 
       <div class="dash-hero-side">
+        <!-- ACCOUNT CARD + BANNED STATUS -->
         <div class="dash-hero-side-card">
           <p class="dash-hero-side-label">Account</p>
           <p class="dash-hero-side-value"><%= (user && user.email) || '—' %></p>
@@ -101,14 +102,21 @@
               <span>Username:</span> <code><%= user.username %></code><br />
               <span>Display Name:</span> <code><%= user.global_name || user.username %></code><br />
               <span>Discord Tag:</span> <code><%= user.username %>#<%= user.discriminator %></code><br />
-              <span>Discord ID:</span> <code><%= user.id %></code>
+              <span>Discord ID:</span> <code><%= user.id %></code><br />
+              <% 
+                var isBanned = keyData && keyData.banned === true;
+              %>
+              <span>Status:</span>
+              <span class="badge <%= isBanned ? 'badge-danger' : 'badge-active' %>">
+                <%= isBanned ? 'Banned' : 'OK' %>
+              </span>
             <% } else { %>
               <span>Not logged in.</span>
             <% } %>
           </p>
         </div>
 
-        <!-- CARD BANNER (bukan Banned) -->
+        <!-- CARD BANNER (Discord Banner Image) -->
         <div class="dash-hero-side-card">
           <p class="dash-hero-side-label">Banner</p>
           <%
@@ -253,12 +261,12 @@
           <div>Actions</div>
         </div>
 
-        <% 
+        <%
           var keys = (keyData && Array.isArray(keyData.keys)) ? keyData.keys : [];
         %>
 
         <% if (keys.length > 0) { %>
-          <% keys.forEach(function(k) { 
+          <% keys.forEach(function(k) {
               var keyLabel    = k.key || k.token || '';
               var providerRaw = k.provider || k.providerLabel || k.source || 'ExHub';
               var providerLbl = providerRaw;
@@ -275,7 +283,7 @@
               var tierLabel   = (k.tier || 'Free');
               var tierLower   = tierLabel.toLowerCase();
 
-              // expireTs untuk countdown realtime (optional)
+              // expireTs untuk countdown realtime
               var expireTs = null;
               if (typeof k.expiresAtMs !== 'undefined' && k.expiresAtMs != null) {
                 expireTs = parseInt(k.expiresAtMs, 10);
