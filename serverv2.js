@@ -295,7 +295,7 @@ module.exports = function mountDiscordOAuth(app) {
     process.env.WORKINK_ADS_URL || "https://work.ink/23P2/exhubfreekey";
   const LINKVERTISE_ADS_URL =
     process.env.LINKVERTISE_ADS_URL ||
-    "https://linkvertise.com/access/2995260/uaE3u7P8CG5D";
+    "https://link-target.net/2995260/uaE3u7P8CG5D";
 
   if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
     console.warn(
