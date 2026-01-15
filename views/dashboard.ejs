@@ -31,8 +31,14 @@
             <% } else { %>
               <span class="user-icon"></span>
             <% } %>
-            <span class="user-name"><%= user.global_name %></span>
+            <span class="user-name"><%= user.global_name || user.username %></span>
           </div>
+
+          <!-- Link cepat ke Get Free Key -->
+          <a href="/getfreekey?ads=workink" class="btn btn-ghost" style="margin:0 8px;">
+            Get Free Key
+          </a>
+
           <form action="/logout" method="post" style="display:inline;">
             <button type="submit" class="btn-ghost">Sign Out</button>
           </form>
@@ -45,7 +51,7 @@
 <main class="page-main">
   <div class="container dashboard-layout">
 
-    <!-- HERO / WELCOME CARD -->
+    <!-- HERO / WELCOME + DISCORD PROFILE -->
     <section class="dash-hero">
       <div class="dash-hero-main">
         <div class="dash-hero-avatar-frame">
@@ -71,15 +77,17 @@
         <div class="dash-hero-text">
           <p class="dash-eyebrow">License Dashboard</p>
           <h1 class="dash-welcome">
-            Welcome back, <span><%= user.global_name %></span>
+            Welcome back, <span><%= (user && (user.global_name || user.username)) || 'User' %></span>
           </h1>
-          <p class="dash-caption">Manage your license keys.</p>
+          <p class="dash-caption">Monitor and control all of your ExHub keys and account metadata.</p>
 
           <div class="dash-hero-chips">
             <span class="hero-chip">Discord verified</span>
-            <span class="hero-chip hero-chip-soft">
-              Servers joined: <strong><%= user.guildCount %></strong>
-            </span>
+            <% if (user && typeof user.guildCount !== 'undefined') { %>
+              <span class="hero-chip hero-chip-soft" data-guild-count="<%= user.guildCount %>">
+                Servers joined: <strong><%= user.guildCount %></strong>
+              </span>
+            <% } %>
           </div>
         </div>
       </div>
@@ -87,31 +95,70 @@
       <div class="dash-hero-side">
         <div class="dash-hero-side-card">
           <p class="dash-hero-side-label">Account</p>
-          <p class="dash-hero-side-value"><%= user.email %></p>
+          <p class="dash-hero-side-value"><%= (user && user.email) || '—' %></p>
           <p class="dash-hero-side-meta">
-            Logged in as <span>#<%= user.discriminator %></span>
+            <% if (user) { %>
+              <span>Username:</span> <code><%= user.username %></code><br />
+              <span>Display Name:</span> <code><%= user.global_name || user.username %></code><br />
+              <span>Discord Tag:</span> <code><%= user.username %>#<%= user.discriminator %></code><br />
+              <span>Discord ID:</span> <code><%= user.id %></code>
+            <% } else { %>
+              <span>Not logged in.</span>
+            <% } %>
           </p>
+        </div>
+
+        <!-- CARD BANNER (bukan Banned) -->
+        <div class="dash-hero-side-card">
+          <p class="dash-hero-side-label">Banner</p>
+          <%
+            var hasBanner = user && user.banner;
+            var bannerUrl = null;
+            if (hasBanner) {
+              bannerUrl = "https://cdn.discordapp.com/banners/" + user.id + "/" + user.banner + "?size=512";
+            }
+          %>
+          <% if (hasBanner && bannerUrl) { %>
+            <div class="dash-banner-preview" style="border-radius:12px;overflow:hidden;background:#05070c;max-height:120px;margin-bottom:8px;">
+              <img
+                src="<%= bannerUrl %>"
+                alt="Discord banner"
+                class="dash-banner-img"
+                style="width:100%;height:120px;object-fit:cover;display:block;"
+              />
+            </div>
+            <p class="dash-hero-side-meta">
+              Banner ID:
+              <code><%= user.banner %></code>
+            </p>
+          <% } else { %>
+            <p class="dash-hero-side-meta">
+              No banner configured for this Discord account.
+            </p>
+          <% } %>
         </div>
       </div>
     </section>
 
-    <!-- STATS -->
+    <!-- STATS (TOTAL / ACTIVE / PREMIUM) -->
     <section class="dash-stats-grid">
       <div class="dash-stat-card">
         <p class="dash-stat-label">Total Keys</p>
-        <p class="dash-stat-value"><%= keyData.total || 0 %></p>
+        <p class="dash-stat-value" id="stat-total-keys">
+          <%= (keyData && typeof keyData.total !== 'undefined') ? keyData.total : ((keyData && keyData.keys && keyData.keys.length) || 0) %>
+        </p>
       </div>
       <div class="dash-stat-card">
-        <p class="dash-stat-label">Active</p>
-        <p class="dash-stat-value"><%= keyData.active || 0 %></p>
+        <p class="dash-stat-label">Active Keys</p>
+        <p class="dash-stat-value" id="stat-active-keys">
+          <%= (keyData && typeof keyData.active !== 'undefined') ? keyData.active : 0 %>
+        </p>
       </div>
       <div class="dash-stat-card">
-        <p class="dash-stat-label">Premium</p>
-        <p class="dash-stat-value"><%= keyData.premium || 0 %></p>
-      </div>
-      <div class="dash-stat-card">
-        <p class="dash-stat-label">Linked</p>
-        <p class="dash-stat-value"><%= (keyData.linked || 0) %></p>
+        <p class="dash-stat-label">Premium / Paid Keys</p>
+        <p class="dash-stat-value" id="stat-premium-keys">
+          <%= (keyData && typeof keyData.premium !== 'undefined') ? keyData.premium : 0 %>
+        </p>
       </div>
     </section>
 
@@ -119,9 +166,9 @@
     <section class="dash-getfree-section">
       <div class="dash-getfree-header">
         <div>
-          <h2 class="dash-section-title">Get a free key</h2>
+          <h2 class="dash-section-title">Get a Free Key</h2>
           <p class="dash-section-caption">
-            Choose your preferred provider, complete a quick verification, and your key will appear here automatically.
+            Choose your preferred provider, complete a quick verification, and your free key will appear automatically.
           </p>
         </div>
       </div>
@@ -137,7 +184,7 @@
               <p class="getfree-label">Get Free Key</p>
               <h3 class="getfree-title">Work.ink</h3>
               <p class="getfree-desc">
-                Complete a short task and receive your ExHub key instantly after verification.
+                Complete a short task and receive your ExHub free key instantly after verification.
               </p>
             </div>
           </div>
@@ -183,14 +230,15 @@
         <div>
           <h2>Your Keys</h2>
           <p class="dash-section-caption">
-            Overview of all keys currently linked to your account.
+            All keys linked to this Discord account, including free keys (Work.ink / Linkvertise) and paid keys.
           </p>
         </div>
         <div class="dash-keys-controls">
           <input
             type="text"
             class="dash-search-input"
-            placeholder="Search by key, game, or provider..."
+            id="keys-search-input"
+            placeholder="Search by key, provider, or tier..."
           />
         </div>
       </div>
@@ -205,36 +253,100 @@
           <div>Actions</div>
         </div>
 
-        <% if (keyData.keys && keyData.keys.length > 0) { %>
-          <% keyData.keys.forEach(function(k) { %>
-            <div class="dash-keys-row">
-              <div class="dash-key-id"><%= k.key %></div>
-              <div><%= k.provider || '-' %></div>
-              <div><%= k.timeLeft || '-' %></div>
-              <div>
-                <span class="badge badge-<%= (k.status || 'Active').toLowerCase() %>">
-                  <%= k.status || 'Active' %>
+        <% 
+          var keys = (keyData && Array.isArray(keyData.keys)) ? keyData.keys : [];
+        %>
+
+        <% if (keys.length > 0) { %>
+          <% keys.forEach(function(k) { 
+              var keyLabel    = k.key || k.token || '';
+              var providerRaw = k.provider || k.providerLabel || k.source || 'ExHub';
+              var providerLbl = providerRaw;
+
+              // Normalisasi Provider tampilan
+              if (providerRaw.toLowerCase() === 'workink' || providerRaw.toLowerCase() === 'work.ink') {
+                providerLbl = 'Work.ink';
+              } else if (providerRaw.toLowerCase().indexOf('linkvertise') !== -1) {
+                providerLbl = 'Linkvertise';
+              }
+
+              var statusLabel = (k.status || 'Active');
+              var statusLower = statusLabel.toLowerCase();
+              var tierLabel   = (k.tier || 'Free');
+              var tierLower   = tierLabel.toLowerCase();
+
+              // expireTs untuk countdown realtime (optional)
+              var expireTs = null;
+              if (typeof k.expiresAtMs !== 'undefined' && k.expiresAtMs != null) {
+                expireTs = parseInt(k.expiresAtMs, 10);
+              } else if (typeof k.expiresAfter !== 'undefined' && k.expiresAfter != null) {
+                expireTs = parseInt(k.expiresAfter, 10);
+              } else if (typeof k.expiresAt !== 'undefined' && k.expiresAt != null) {
+                var tmp = parseInt(k.expiresAt, 10);
+                if (!isNaN(tmp)) expireTs = tmp;
+              }
+
+              var expireAttr = expireTs ? String(expireTs) : '';
+              var isFreeKey  = (tierLower === 'free') ||
+                               (providerLbl === 'Work.ink' || providerLbl === 'Linkvertise');
+          %>
+            <div
+              class="dash-keys-row"
+              data-role="key-row"
+              data-key="<%= keyLabel %>"
+              data-provider="<%= providerLbl %>"
+              data-status="<%= statusLabel %>"
+              data-tier="<%= tierLabel %>"
+              data-free="<%= isFreeKey ? '1' : '0' %>"
+              <% if (expireAttr) { %> data-expire-ts="<%= expireAttr %>" <% } %>
+            >
+              <div class="dash-key-id">
+                <code><%= keyLabel %></code>
+              </div>
+              <div class="dash-key-provider">
+                <%= providerLbl %>
+              </div>
+              <div class="dash-key-time">
+                <span class="dash-key-time-label">
+                  <%= k.timeLeft || (expireAttr ? '' : '-') %>
                 </span>
               </div>
-              <div>
-                <span class="badge badge-tier-<%= (k.tier || 'Free').toLowerCase() %>">
-                  <%= k.tier || 'Free' %>
+              <div class="dash-key-status">
+                <span class="badge dash-key-status-badge dash-key-status-<%= statusLower %>">
+                  <%= statusLabel %>
+                </span>
+              </div>
+              <div class="dash-key-tier">
+                <span class="badge badge-tier-<%= tierLower.indexOf('free') !== -1 ? 'free' : 'paid' %>">
+                  <%= tierLabel %>
                 </span>
               </div>
               <div class="dash-key-actions">
                 <button
+                  type="button"
                   class="btn-subtle btn-icon"
                   title="Copy key"
-                  type="button"
-                  onclick="navigator.clipboard.writeText('<%= k.key %>')">
+                  data-action="copy-key"
+                  data-token="<%= keyLabel %>"
+                >
                   📋
+                </button>
+                <button
+                  type="button"
+                  class="btn-subtle btn-icon btn-danger-soft"
+                  title="Delete key"
+                  data-action="delete-key"
+                  data-token="<%= keyLabel %>"
+                  data-free="<%= isFreeKey ? '1' : '0' %>"
+                >
+                  🗑
                 </button>
               </div>
             </div>
           <% }) %>
         <% } else { %>
           <div class="dash-keys-empty">
-            You don't have any keys yet. Use the <strong>Get Free Key</strong> shortcuts above to generate your first key.
+            You don't have any keys yet. Use the <strong>Get Free Key</strong> shortcuts above or your paid license to generate keys.
           </div>
         <% } %>
       </div>
@@ -242,5 +354,252 @@
   </div>
 </main>
 
+<script>
+  // Expose keys array to JS (untuk debug / future use, tidak wajib).
+  window.EXHUB_DASH_KEYS = <%- JSON.stringify(keys || []) %>;
+</script>
+
+<!-- SCRIPT: Copy, Delete, Search, Realtime Countdown, Realtime Stats -->
+<script>
+(function () {
+  // =========================
+  // Utility copy to clipboard
+  // =========================
+  function copyText(text) {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      try {
+        var dummy = document.createElement('textarea');
+        dummy.value = text;
+        dummy.setAttribute('readonly', '');
+        dummy.style.position = 'fixed';
+        dummy.style.opacity = '0';
+        dummy.style.zIndex = '-1';
+        document.body.appendChild(dummy);
+        dummy.select();
+        document.execCommand('copy');
+        document.body.removeChild(dummy);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  // =========================
+  // Recompute stats (Total / Active / Premium)
+  // =========================
+  function recomputeStats() {
+    var rows = document.querySelectorAll('.dash-keys-row[data-role="key-row"]');
+    var total = 0;
+    var activeCount = 0;
+    var premiumCount = 0;
+
+    rows.forEach(function (row) {
+      total++;
+      var status = (row.getAttribute('data-status') || '').toLowerCase();
+      var tier   = (row.getAttribute('data-tier') || '').toLowerCase();
+
+      if (status === 'active') {
+        activeCount++;
+      }
+
+      // Premium / Paid: bukan "free" murni
+      if (tier && tier.indexOf('free') === -1) {
+        premiumCount++;
+      }
+    });
+
+    var elTotal   = document.getElementById('stat-total-keys');
+    var elActive  = document.getElementById('stat-active-keys');
+    var elPremium = document.getElementById('stat-premium-keys');
+
+    if (elTotal)   elTotal.textContent   = total;
+    if (elActive)  elActive.textContent  = activeCount;
+    if (elPremium) elPremium.textContent = premiumCount;
+  }
+
+  // =========================
+  // Realtime countdown + status update
+  // =========================
+  function formatRemaining(ms) {
+    if (!isFinite(ms)) return '-';
+    if (ms <= 0) return 'Expired';
+
+    var totalSec = Math.floor(ms / 1000);
+    var d = Math.floor(totalSec / 86400);
+    var h = Math.floor((totalSec % 86400) / 3600);
+    var m = Math.floor((totalSec % 3600) / 60);
+    var s = totalSec % 60;
+
+    var parts = [];
+    if (d > 0) parts.push(d + 'd');
+    if (h > 0 || d > 0) parts.push(h + 'h');
+    if (m > 0 || h > 0 || d > 0) parts.push(m + 'm');
+    parts.push(s + 's');
+    return parts.join(' ');
+  }
+
+  function tickCountdown() {
+    var now = Date.now();
+    var rows = document.querySelectorAll('.dash-keys-row[data-role="key-row"][data-expire-ts]');
+    if (!rows.length) return;
+
+    rows.forEach(function (row) {
+      var expireStr = row.getAttribute('data-expire-ts');
+      if (!expireStr) return;
+      var expireTs = parseInt(expireStr, 10);
+      if (!expireTs || !isFinite(expireTs)) return;
+
+      var timeLabel = row.querySelector('.dash-key-time-label');
+      var statusBadge = row.querySelector('.dash-key-status-badge');
+
+      var diff = expireTs - now;
+      if (timeLabel) {
+        timeLabel.textContent = formatRemaining(diff);
+      }
+
+      if (diff <= 0) {
+        // mark expired di DOM
+        row.setAttribute('data-status', 'Expired');
+        if (statusBadge) {
+          statusBadge.textContent = 'Expired';
+          statusBadge.classList.remove('dash-key-status-active');
+          statusBadge.classList.add('dash-key-status-expired');
+        }
+      } else {
+        // masih active
+        row.setAttribute('data-status', 'Active');
+        if (statusBadge) {
+          statusBadge.textContent = 'Active';
+          statusBadge.classList.remove('dash-key-status-expired');
+          statusBadge.classList.add('dash-key-status-active');
+        }
+      }
+    });
+
+    // setelah update status, refresh stats
+    recomputeStats();
+  }
+
+  // =========================
+  // Delete key (free key → /api/freekey/delete/:key)
+  // =========================
+  async function deleteKey(row, token, isFree) {
+    if (!token) return;
+
+    var ok = window.confirm('Delete this key? This action cannot be undone.');
+    if (!ok) return;
+
+    try {
+      var url;
+      var options = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      };
+
+      if (isFree) {
+        // Free key: pakai API free key
+        url = '/api/freekey/delete/' + encodeURIComponent(token);
+      } else {
+        // Paid / lain-lain – siapkan endpoint terpisah jika dibutuhkan
+        url = '/api/keys/delete';
+        options.body = JSON.stringify({ key: token });
+      }
+
+      var res = await fetch(url, options);
+      var json = null;
+      try {
+        json = await res.json();
+      } catch (e) {
+        // boleh diabaikan
+      }
+
+      if (!res.ok || (json && json.ok === false)) {
+        alert('Failed to delete key. Please try again later.');
+        return;
+      }
+
+      // Remove row dari DOM
+      if (row && row.parentNode) {
+        row.parentNode.removeChild(row);
+      }
+
+      // refresh stats sesudah delete
+      recomputeStats();
+    } catch (err) {
+      console.error('Delete key error:', err);
+      alert('Unexpected error while deleting key.');
+    }
+  }
+
+  // =========================
+  // Event handlers (Copy / Delete / Search)
+  // =========================
+  function setupActions() {
+    var table = document.querySelector('.dash-keys-table');
+    if (!table) return;
+
+    table.addEventListener('click', function (ev) {
+      var btn = ev.target.closest('[data-action]');
+      if (!btn) return;
+
+      var action = btn.getAttribute('data-action');
+      var token  = btn.getAttribute('data-token') || '';
+      var row    = btn.closest('.dash-keys-row[data-role="key-row"]');
+
+      if (action === 'copy-key') {
+        copyText(token).then(function () {
+          var prev = btn.textContent;
+          btn.textContent = 'Copied';
+          setTimeout(function () {
+            btn.textContent = prev;
+          }, 1000);
+        }).catch(function () {
+          alert('Failed to copy key.');
+        });
+      }
+
+      if (action === 'delete-key') {
+        var isFree = btn.getAttribute('data-free') === '1';
+        deleteKey(row, token, isFree);
+      }
+    });
+
+    // Search / filter
+    var searchInput = document.getElementById('keys-search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        var q = (searchInput.value || '').toLowerCase().trim();
+        var rows = document.querySelectorAll('.dash-keys-row[data-role="key-row"]');
+        rows.forEach(function (row) {
+          var key   = (row.getAttribute('data-key') || '').toLowerCase();
+          var prov  = (row.getAttribute('data-provider') || '').toLowerCase();
+          var tier  = (row.getAttribute('data-tier') || '').toLowerCase();
+          var show  = !q || key.indexOf(q) !== -1 || prov.indexOf(q) !== -1 || tier.indexOf(q) !== -1;
+          row.style.display = show ? '' : 'none';
+        });
+      });
+    }
+  }
+
+  // =========================
+  // Init
+  // =========================
+  document.addEventListener('DOMContentLoaded', function () {
+    setupActions();
+    recomputeStats();
+    tickCountdown();
+    setInterval(tickCountdown, 1000);
+  });
+})();
+</script>
+
+<!-- Proteksi dasar: blokir klik kanan + beberapa shortcut DevTools -->
+<script src="/js/protect-devtools.js"></script>
 </body>
 </html>
