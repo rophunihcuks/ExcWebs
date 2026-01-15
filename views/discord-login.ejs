@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ExHub — Sign In</title>
+  <link rel="icon" type="image/png" href="/img/ExLogo2.png" />
+  <link rel="stylesheet" href="/css/mainv2.css" />
+</head>
+<body class="page-dark">
+<header class="site-header">
+  <div class="container header-inner">
+    <a href="/" class="logo">
+      <span class="logo-icon">
+        <img src="/img/ExLogo2.png" alt="ExHub Logo"
+             style="width:100%;height:100%;object-fit:cover;border-radius:12px;" />
+      </span>
+      <span class="logo-text">ExHub</span>
+    </a>
+
+    <nav class="header-nav">
+      <% if (user) { %>
+        <div class="header-user">
+          <span class="header-user-pill">
+            <span class="user-icon"></span>
+            <span class="user-name"><%= user.global_name %></span>
+          </span>
+          <a href="/dashboard" class="btn btn-subtle">Dashboard</a>
+          <form action="/logout" method="post" style="display:inline;">
+            <button type="submit" class="btn btn-ghost">Sign Out</button>
+          </form>
+        </div>
+      <% } else { %>
+        <a href="/discord-login" class="btn btn-ghost">Sign In</a>
+      <% } %>
+    </nav>
+  </div>
+</header>
+
+<main class="page-main">
+  <div class="auth-wrapper">
+    <div class="auth-card">
+      <div class="auth-icon">
+        <span class="auth-avatar"></span>
+      </div>
+      <h1 class="auth-title">Sign In</h1>
+      <p class="auth-subtitle">Connect with your Discord account to manage your ExHub keys.</p>
+
+      <% if (error) { %>
+        <div class="auth-error">
+          Something went wrong (code: <%= error %>). Please try again.
+        </div>
+      <% } %>
+
+      <a href="/auth/discord" class="btn btn-discord auth-button">
+        <span class="btn-discord-icon"></span>
+        <span>Sign in with Discord</span>
+      </a>
+
+      <p class="auth-footnote">
+        We will request access to your Discord username, avatar, email, and the servers you're in.
+      </p>
+    </div>
+  </div>
+</main>
+</body>
+</html>

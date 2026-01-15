@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ExHub — Dashboard</title>
+  <link rel="icon" type="image/png" href="/img/ExLogo2.png" />
+  <link rel="stylesheet" href="/css/mainv2.css" />
+</head>
+<body class="page-dark">
+<header class="site-header">
+  <div class="container header-inner">
+    <a href="/" class="logo">
+      <span class="logo-icon">
+        <img src="/img/ExLogo2.png" alt="ExHub Logo"
+             style="width:100%;height:100%;object-fit:cover;border-radius:12px;" />
+      </span>
+      <span class="logo-text">ExHub</span>
+    </a>
+
+    <nav class="header-nav">
+      <% if (user) { %>
+        <div class="header-user">
+          <div class="header-user-pill">
+            <% if (user.avatar) { %>
+              <img
+                src="https://cdn.discordapp.com/avatars/<%= user.id %>/<%= user.avatar %>.png?size=64"
+                alt="Avatar"
+                class="header-user-avatar"
+              />
+            <% } else { %>
+              <span class="user-icon"></span>
+            <% } %>
+            <span class="user-name"><%= user.global_name %></span>
+          </div>
+          <form action="/logout" method="post" style="display:inline;">
+            <button type="submit" class="btn btn-ghost">Sign Out</button>
+          </form>
+        </div>
+      <% } %>
+    </nav>
+  </div>
+</header>
+
+<main class="page-main">
+  <div class="container dashboard-layout">
+    <header class="dash-header">
+      <div class="dash-user-block">
+        <% if (user.avatar) { %>
+          <img
+            src="https://cdn.discordapp.com/avatars/<%= user.id %>/<%= user.avatar %>.png?size=128"
+            alt="Avatar"
+            class="dash-avatar"
+          />
+        <% } else { %>
+          <div class="dash-avatar dash-avatar-placeholder"></div>
+        <% } %>
+        <div>
+          <p class="dash-welcome">Welcome back, <span><%= user.global_name %></span></p>
+          <p class="dash-caption">Manage your license keys.</p>
+        </div>
+      </div>
+      <div class="dash-user-meta">
+        <span><%= user.email %></span>
+        <span>Servers joined: <%= user.guildCount %></span>
+      </div>
+    </header>
+
+    <section class="dash-stats-grid">
+      <div class="dash-stat-card">
+        <p class="dash-stat-label">Total Keys</p>
+        <p class="dash-stat-value"><%= keyData.total || 0 %></p>
+      </div>
+      <div class="dash-stat-card">
+        <p class="dash-stat-label">Active</p>
+        <p class="dash-stat-value"><%= keyData.active || 0 %></p>
+      </div>
+      <div class="dash-stat-card">
+        <p class="dash-stat-label">Premium</p>
+        <p class="dash-stat-value"><%= keyData.premium || 0 %></p>
+      </div>
+      <div class="dash-stat-card">
+        <p class="dash-stat-label">Linked</p>
+        <p class="dash-stat-value"><%= (keyData.linked || 0) %></p>
+      </div>
+    </section>
+
+    <section class="dash-keys-section">
+      <div class="dash-keys-header">
+        <h2>Your Keys</h2>
+        <div class="dash-keys-controls">
+          <input
+            type="text"
+            class="dash-search-input"
+            placeholder="Search by key, game, or provider..."
+          />
+        </div>
+      </div>
+
+      <div class="dash-keys-table">
+        <div class="dash-keys-row dash-keys-row--head">
+          <div>Key</div>
+          <div>Provider</div>
+          <div>Time Left</div>
+          <div>Status</div>
+          <div>Tier</div>
+          <div>Actions</div>
+        </div>
+
+        <% if (keyData.keys && keyData.keys.length > 0) { %>
+          <% keyData.keys.forEach(function(k) { %>
+            <div class="dash-keys-row">
+              <div class="dash-key-id"><%= k.key %></div>
+              <div><%= k.provider || '-' %></div>
+              <div><%= k.timeLeft || '-' %></div>
+              <div>
+                <span class="badge badge-<%= (k.status || 'Active').toLowerCase() %>">
+                  <%= k.status || 'Active' %>
+                </span>
+              </div>
+              <div>
+                <span class="badge badge-tier-<%= (k.tier || 'Free').toLowerCase() %>">
+                  <%= k.tier || 'Free' %>
+                </span>
+              </div>
+              <div class="dash-key-actions">
+                <button class="btn btn-icon" title="Copy key" type="button"
+                        onclick="navigator.clipboard.writeText('<%= k.key %>')">
+                  📋
+                </button>
+              </div>
+            </div>
+          <% }) %>
+        <% } else { %>
+          <div class="dash-keys-empty">
+            You don't have any keys yet.
+          </div>
+        <% } %>
+      </div>
+    </section>
+  </div>
+</main>
+
+</body>
+</html>
