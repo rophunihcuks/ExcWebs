@@ -34,7 +34,7 @@
             <span class="user-name"><%= user.global_name %></span>
           </div>
           <form action="/logout" method="post" style="display:inline;">
-            <button type="submit" class="btn btn-ghost">Sign Out</button>
+            <button type="submit" class="btn-ghost">Sign Out</button>
           </form>
         </div>
       <% } %>
@@ -44,28 +44,58 @@
 
 <main class="page-main">
   <div class="container dashboard-layout">
-    <header class="dash-header">
-      <div class="dash-user-block">
-        <% if (user.avatar) { %>
-          <img
-            src="https://cdn.discordapp.com/avatars/<%= user.id %>/<%= user.avatar %>.png?size=128"
-            alt="Avatar"
-            class="dash-avatar"
-          />
-        <% } else { %>
-          <div class="dash-avatar dash-avatar-placeholder"></div>
-        <% } %>
-        <div>
-          <p class="dash-welcome">Welcome back, <span><%= user.global_name %></span></p>
+
+    <!-- HERO / WELCOME CARD -->
+    <section class="dash-hero">
+      <div class="dash-hero-main">
+        <div class="dash-hero-avatar-frame">
+          <% if (user && user.avatar) { %>
+            <img
+              src="https://cdn.discordapp.com/avatars/<%= user.id %>/<%= user.avatar %>.png?size=128"
+              alt="Avatar"
+              class="dash-hero-avatar-img"
+            />
+          <% } else if (user) { %>
+            <div class="dash-hero-avatar-placeholder">
+              <span>
+                <%= (user.global_name || user.username || 'U').charAt(0) %>
+              </span>
+            </div>
+          <% } else { %>
+            <div class="dash-hero-avatar-placeholder">
+              <span>?</span>
+            </div>
+          <% } %>
+        </div>
+
+        <div class="dash-hero-text">
+          <p class="dash-eyebrow">License Dashboard</p>
+          <h1 class="dash-welcome">
+            Welcome back, <span><%= user.global_name %></span>
+          </h1>
           <p class="dash-caption">Manage your license keys.</p>
+
+          <div class="dash-hero-chips">
+            <span class="hero-chip">Discord verified</span>
+            <span class="hero-chip hero-chip-soft">
+              Servers joined: <strong><%= user.guildCount %></strong>
+            </span>
+          </div>
         </div>
       </div>
-      <div class="dash-user-meta">
-        <span><%= user.email %></span>
-        <span>Servers joined: <%= user.guildCount %></span>
-      </div>
-    </header>
 
+      <div class="dash-hero-side">
+        <div class="dash-hero-side-card">
+          <p class="dash-hero-side-label">Account</p>
+          <p class="dash-hero-side-value"><%= user.email %></p>
+          <p class="dash-hero-side-meta">
+            Logged in as <span>#<%= user.discriminator %></span>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATS -->
     <section class="dash-stats-grid">
       <div class="dash-stat-card">
         <p class="dash-stat-label">Total Keys</p>
@@ -85,9 +115,77 @@
       </div>
     </section>
 
+    <!-- QUICK GET FREE KEY ACTIONS -->
+    <section class="dash-getfree-section">
+      <div class="dash-getfree-header">
+        <div>
+          <h2 class="dash-section-title">Get a free key</h2>
+          <p class="dash-section-caption">
+            Choose your preferred provider, complete a quick verification, and your key will appear here automatically.
+          </p>
+        </div>
+      </div>
+
+      <div class="dash-getfree-grid">
+        <!-- Work.ink -->
+        <a href="/getfreekey?ads=workink" class="getfree-card">
+          <div class="getfree-card-main">
+            <div class="getfree-icon">
+              <span class="getfree-key-icon">🔑</span>
+            </div>
+            <div class="getfree-text">
+              <p class="getfree-label">Get Free Key</p>
+              <h3 class="getfree-title">Work.ink</h3>
+              <p class="getfree-desc">
+                Complete a short task and receive your ExHub key instantly after verification.
+              </p>
+            </div>
+          </div>
+          <div class="getfree-provider">
+            <img
+              src="/img/workink.jpg"
+              alt="Work.ink"
+              class="getfree-provider-logo"
+            />
+            <span class="getfree-cta">Start</span>
+          </div>
+        </a>
+
+        <!-- Linkvertise -->
+        <a href="/getfreekey?ads=linkvertise" class="getfree-card">
+          <div class="getfree-card-main">
+            <div class="getfree-icon">
+              <span class="getfree-key-icon">🔑</span>
+            </div>
+            <div class="getfree-text">
+              <p class="getfree-label">Get Free Key</p>
+              <h3 class="getfree-title">Linkvertise</h3>
+              <p class="getfree-desc">
+                Use the Linkvertise route for alternative offers and stable delivery.
+              </p>
+            </div>
+          </div>
+          <div class="getfree-provider">
+            <img
+              src="/img/linkvertise.png"
+              alt="Linkvertise"
+              class="getfree-provider-logo"
+            />
+            <span class="getfree-cta">Start</span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- KEYS TABLE -->
     <section class="dash-keys-section">
       <div class="dash-keys-header">
-        <h2>Your Keys</h2>
+        <div>
+          <h2>Your Keys</h2>
+          <p class="dash-section-caption">
+            Overview of all keys currently linked to your account.
+          </p>
+        </div>
         <div class="dash-keys-controls">
           <input
             type="text"
@@ -124,8 +222,11 @@
                 </span>
               </div>
               <div class="dash-key-actions">
-                <button class="btn btn-icon" title="Copy key" type="button"
-                        onclick="navigator.clipboard.writeText('<%= k.key %>')">
+                <button
+                  class="btn-subtle btn-icon"
+                  title="Copy key"
+                  type="button"
+                  onclick="navigator.clipboard.writeText('<%= k.key %>')">
                   📋
                 </button>
               </div>
@@ -133,7 +234,7 @@
           <% }) %>
         <% } else { %>
           <div class="dash-keys-empty">
-            You don't have any keys yet.
+            You don't have any keys yet. Use the <strong>Get Free Key</strong> shortcuts above to generate your first key.
           </div>
         <% } %>
       </div>
