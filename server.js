@@ -167,6 +167,22 @@ const ADS_CHECKPOINT_MAX_AGE_MS = parseInt(
   10
 );
 
+// ---- helper umum (IP, UA, scripts+KV) -----------------------------
+
+function getClientIp(req) {
+  const xff = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  if (xff) return xff;
+  if (req.socket && req.socket.remoteAddress) {
+    return req.socket.remoteAddress;
+  }
+  return 'unknown';
+}
+
+function isRobloxUserAgent(req) {
+  const ua = (req.headers['user-agent'] || '').toLowerCase();
+  return ua.includes('roblox');
+}
+
 // ---- helper file lokal (fallback) ---------------------------------
 
 function loadScriptsFromFile() {
@@ -974,8 +990,7 @@ async function buildAdminStats(period) {
   }
 
   // 1) scripts + KV
-  let scripts = await loadScripts();
-  scripts = await hydrateScriptsWithKV(scripts);
+  const scripts = await loadScriptsHydrated();
 
   // 2) exec-users dari KV/file
   const execUsers = await loadExecUsers();
@@ -1202,6 +1217,14 @@ async function hydrateScriptsWithKV(scripts) {
 }
 
 /**
+ * Helper gabungan: load scripts + hydrate KV.
+ */
+async function loadScriptsHydrated() {
+  const scripts = await loadScripts();
+  return hydrateScriptsWithKV(scripts);
+}
+
+/**
  * Tambah counter uses dan users unik (IP-based) di KV ketika loader dipanggil.
  */
 async function incrementCountersKV(script, req) {
@@ -1216,10 +1239,7 @@ async function incrementCountersKV(script, req) {
   kvIncr(usesKey).catch((err) => console.error('KV INCR error:', err));
 
   // 2) unique users berdasarkan IP
-  const ip =
-    (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-    req.socket.remoteAddress ||
-    'unknown';
+  const ip = getClientIp(req);
 
   if (!ip || ip === 'unknown') return;
 
@@ -1387,8 +1407,7 @@ function requireAdmin(req, res, next) {
 // ===================================================================
 
 app.get('/', async (req, res) => {
-  let scripts = await loadScripts();
-  scripts = await hydrateScriptsWithKV(scripts);
+  const scripts = await loadScriptsHydrated();
   const stats = computeStats(scripts);
 
   res.render('index', {
@@ -1398,8 +1417,7 @@ app.get('/', async (req, res) => {
 });
 
 app.get('/scripts', async (req, res) => {
-  let scripts = await loadScripts();
-  scripts = await hydrateScriptsWithKV(scripts);
+  const scripts = await loadScriptsHydrated();
   const stats = computeStats(scripts);
 
   res.render('scripts', {
@@ -1415,10 +1433,7 @@ app.get('/scripts', async (req, res) => {
 // Step 1: user klik Start → catat checkpoint & userId, lalu redirect ke Linkvertise
 app.get('/generatekey/ads-start', async (req, res) => {
   try {
-    const ip =
-      (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-      req.socket.remoteAddress ||
-      'unknown';
+    const ip = getClientIp(req);
 
     const currentUserId = (req.query.userId || '').trim() || null;
     const now = Date.now();
@@ -1449,11 +1464,7 @@ app.get('/generatekey', async (req, res) => {
     const host = req.get('host') || '';
     const baseUrl = `${req.protocol}://${host}`;
 
-    const ip =
-      (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-      req.socket.remoteAddress ||
-      'unknown';
-
+    const ip = getClientIp(req);
     const currentUserId = (req.query.userId || '').trim();
 
     const siteConfig = await loadSiteConfig();
@@ -1636,11 +1647,7 @@ app.get('/generatekey', async (req, res) => {
 // Endpoint untuk benar-benar generate key baru (dipanggil dari tombol "Get A New Key")
 app.post('/getkey/new', async (req, res) => {
   try {
-    const ip =
-      (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-      req.socket.remoteAddress ||
-      'unknown';
-
+    const ip = getClientIp(req);
     const currentUserId = (req.body.userId || '').trim() || '';
 
     const siteConfig = await loadSiteConfig();
@@ -1761,11 +1768,7 @@ app.post('/getkey/new', async (req, res) => {
 // Endpoint Renew key (per IP, dari halaman generatekey)
 app.post('/getkey/renew', async (req, res) => {
   try {
-    const ip =
-      (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-      req.socket.remoteAddress ||
-      'unknown';
-
+    const ip = getClientIp(req);
     const currentUserId = (req.body.userId || '').trim() || '';
     const token = (req.body.token || '').trim();
 
@@ -1873,10 +1876,7 @@ app.post('/get-key/redeem', async (req, res) => {
       status = 'error';
       message = 'Key ini sudah pernah diredeem sebelumnya.';
     } else {
-      const ip =
-        (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-        req.socket.remoteAddress ||
-        'unknown';
+      const ip = getClientIp(req);
 
       redeemedList.push({
         key: rawKey,
@@ -1928,9 +1928,7 @@ app.get('/api/script/:id', async (req, res) => {
   const expectedKey = process.env.LOADER_KEY;
   const loaderKey = req.headers['x-loader-key'];
 
-  const ua = (req.headers['user-agent'] || '').toLowerCase();
-  const isRobloxUA = ua.includes('roblox');
-
+  const isRobloxUA = isRobloxUserAgent(req);
   const hasValidHeader = expectedKey && loaderKey === expectedKey;
 
   // Kalau bukan Roblox & tidak punya header valid → forbidden page
@@ -2233,10 +2231,7 @@ app.post('/api/exec', async (req, res) => {
         ? String(expiresAt)
         : null;
 
-    const ip =
-      (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-      req.socket.remoteAddress ||
-      'unknown';
+    const ip = getClientIp(req);
 
     if (hasKV) {
       await upsertExecUserKV({
@@ -2590,8 +2585,7 @@ app.get('/api/isValidate/:key', async (req, res) => {
 
 app.get('/api/stats', async (req, res) => {
   try {
-    let scripts = await loadScripts();
-    scripts = await hydrateScriptsWithKV(scripts);
+    const scripts = await loadScriptsHydrated();
     const stats = computeStats(scripts);
 
     res.json({
@@ -3553,8 +3547,7 @@ app.get('/:rawId.raw', async (req, res, next) => {
 // ===================================================================
 
 app.use(async (req, res) => {
-  let scripts = await loadScripts();
-  scripts = await hydrateScriptsWithKV(scripts);
+  const scripts = await loadScriptsHydrated();
   const stats = computeStats(scripts);
   res.status(404).render('index', {
     stats,
