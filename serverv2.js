@@ -109,6 +109,11 @@ function tokenKey(token) {
   return `exhub:freekey:token:${token}`;
 }
 
+// KV untuk simpan profil Discord user (untuk admin dashboard nanti)
+function discordUserProfileKey(discordId) {
+  return `exhub:discord:userprofile:${discordId}`;
+}
+
 function generateFreeKeyToken() {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -522,7 +527,13 @@ module.exports = function mountDiscordOAuth(app) {
   // ROUTES – PUBLIC PAGES
   // =========================
 
+  // Kalau sudah login, /discord-login langsung redirect ke /dashboard
   app.get("/discord-login", (req, res) => {
+    const already = req.session && req.session.discordUser;
+    if (already) {
+      return res.redirect("/dashboard");
+    }
+
     res.render("discord-login", {
       error: req.query.error || null,
     });
@@ -754,7 +765,7 @@ module.exports = function mountDiscordOAuth(app) {
   // --------------------------------------------------
   // API: GET /api/freekey/isValidate/:key
   // { valid, deleted, expired, info: {...} }
-// --------------------------------------------------
+  // --------------------------------------------------
   app.get("/api/freekey/isValidate/:key", async (req, res) => {
     const token = (req.params.key || "").trim();
     const now = nowMs();
@@ -801,7 +812,7 @@ module.exports = function mountDiscordOAuth(app) {
   // --------------------------------------------------
   // API: POST /api/freekey/delete/:key
   // Dipanggil dari dashboard ( tombol Delete ) untuk Free Key.
-// --------------------------------------------------
+  // --------------------------------------------------
   app.post("/api/freekey/delete/:key", requireAuth, async (req, res) => {
     const discordUser = req.session.discordUser;
     const userId = discordUser.id;
@@ -933,7 +944,7 @@ module.exports = function mountDiscordOAuth(app) {
         // tidak fatal
       }
 
-      // Banner juga disimpan supaya bisa dipakai di dashboard.ejs
+      // Banner + data lain disimpan di session
       req.session.discordUser = {
         id: user.id,
         username: user.username,
@@ -945,6 +956,25 @@ module.exports = function mountDiscordOAuth(app) {
         banner: user.banner || null,
       };
 
+      // Simpan snapshot profil Discord ke KV supaya tetap ada meskipun user Sign Out
+      if (hasFreeKeyKV) {
+        try {
+          await kvSetJson(discordUserProfileKey(user.id), {
+            id: user.id,
+            username: user.username,
+            global_name: user.global_name || user.username,
+            discriminator: user.discriminator,
+            avatar: user.avatar,
+            banner: user.banner || null,
+            email: user.email || null,
+            guildCount,
+            lastLoginAt: nowMs(),
+          });
+        } catch (e) {
+          console.warn("[serverv2] gagal simpan profil discord ke KV:", e);
+        }
+      }
+
       res.redirect("/dashboard");
     } catch (err) {
       console.error("[serverv2] OAuth callback exception:", err);
@@ -952,7 +982,7 @@ module.exports = function mountDiscordOAuth(app) {
     }
   });
 
-  // Logout Discord
+  // Logout Discord (hanya hapus session, tidak hapus data di KV)
   app.post("/logout", (req, res) => {
     if (req.session) {
       req.session.discordUser = null;
