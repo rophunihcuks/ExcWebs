@@ -20,11 +20,6 @@ function resolveExHubApiBase() {
 
 // ---------------------------------------------------------
 // Upstash KV khusus Free Key & Paid Key
-// Pola DISESUAIKAN dengan server.js:
-// - KV_REST_API_URL = base URL
-// - GET:  {KV_REST_API_URL}/GET/<key>
-// - SET:  {KV_REST_API_URL}/SET/<key>/<value>
-// Header Authorization: Bearer KV_REST_API_TOKEN
 // ---------------------------------------------------------
 const KV_REST_API_URL = process.env.KV_REST_API_URL;
 const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN;
@@ -86,24 +81,20 @@ function nowMs() {
 }
 
 // ---------------------------------------------------------
-// Konfigurasi Free Key (persisten via Upstash, mirip pola server.js)
+// Konfigurasi Free Key (persisten via Upstash)
 // ---------------------------------------------------------
 
 const FREE_KEY_PREFIX = "EXHUBFREE";
-// TTL default free key (jam) – terpisah dari defaultKeyHours generate key biasa
 const FREE_KEY_TTL_HOURS = 3;
 const FREE_KEY_MAX_PER_USER = 5;
 
-// REQUIREFREEKEY_ADS_CHECKPOINT = "1" (default) → wajib iklan dulu
 const REQUIRE_FREEKEY_ADS_CHECKPOINT =
   String(process.env.REQUIREFREEKEY_ADS_CHECKPOINT || "1") === "1";
 
-// Cooldown anti spam "Open" dari provider (ms). Default 5 menit.
 const FREEKEY_ADS_COOLDOWN_MS = Number(
   process.env.FREEKEY_ADS_COOLDOWN_MS || 5 * 60 * 1000
 );
 
-// Prefix key di Upstash (disamakan pola "exhub:*" seperti server.js)
 function userIndexKey(userId) {
   return `exhub:freekey:user:${userId}`;
 }
@@ -112,7 +103,6 @@ function tokenKey(token) {
   return `exhub:freekey:token:${token}`;
 }
 
-// KV untuk simpan profil Discord user (untuk admin dashboard nanti)
 function discordUserProfileKey(discordId) {
   return `exhub:discord:userprofile:${discordId}`;
 }
@@ -130,14 +120,12 @@ function generateFreeKeyToken() {
   return `${FREE_KEY_PREFIX}-${chunk(3)}-${chunk(4)}-${chunk(5)}`;
 }
 
-// Buat record baru di KV (token unik)
 async function createFreeKeyRecordPersistent({ userId, provider, ip }) {
   const createdAt = nowMs();
   const ttlMs = FREE_KEY_TTL_HOURS * 60 * 60 * 1000;
   const expiresAfter = createdAt + ttlMs;
 
   let token;
-  // pastikan unik di KV (kemungkinan tabrakan kecil, tapi aman)
   for (;;) {
     token = generateFreeKeyToken();
     const existing = await kvGetJson(tokenKey(token));
@@ -156,10 +144,8 @@ async function createFreeKeyRecordPersistent({ userId, provider, ip }) {
     valid: true,
   };
 
-  // Simpan record token
   await kvSetJson(tokenKey(token), rec);
 
-  // Update index per-user (array token)
   const idxKey = userIndexKey(userId);
   let index = await kvGetJson(idxKey);
   if (!Array.isArray(index)) index = [];
@@ -171,7 +157,6 @@ async function createFreeKeyRecordPersistent({ userId, provider, ip }) {
   return rec;
 }
 
-// Perpanjang TTL sebuah token
 async function extendFreeKeyPersistent(token) {
   const key = tokenKey(token);
   const rec = await kvGetJson(key);
@@ -188,7 +173,6 @@ async function extendFreeKeyPersistent(token) {
   return rec;
 }
 
-// Tandai free key sebagai deleted (untuk endpoint delete)
 async function deleteFreeKeyPersistent(token, userIdCheck) {
   const key = tokenKey(token);
   const rec = await kvGetJson(key);
@@ -205,8 +189,6 @@ async function deleteFreeKeyPersistent(token, userIdCheck) {
   return { ok: true, updated: true };
 }
 
-// Ambil semua free key milik user dari KV
-// Return: [{ token, provider, timeLeftLabel, status, expiresAfter, tier }]
 async function getFreeKeysForUserPersistent(userId) {
   if (!hasFreeKeyKV) return [];
 
@@ -220,8 +202,6 @@ async function getFreeKeysForUserPersistent(userId) {
     if (!token) continue;
     const rec = await kvGetJson(tokenKey(token));
     if (!rec) continue;
-
-    // Skip jika sudah dihapus
     if (rec.deleted) continue;
 
     const msLeft = rec.expiresAfter - now;
@@ -237,7 +217,6 @@ async function getFreeKeysForUserPersistent(userId) {
       ? Math.floor(msLeft / 60000) + "m"
       : Math.floor(msLeft / 3600000) + "h";
 
-    // Normalisasi provider untuk tampilan
     let providerLabel = rec.provider || "ExHub Free";
     const p = String(providerLabel).toLowerCase();
     if (p === "workink" || p === "work.ink") providerLabel = "Work.ink";
@@ -253,7 +232,6 @@ async function getFreeKeysForUserPersistent(userId) {
     });
   }
 
-  // Sort: Active dulu, lalu yang paling dekat expired
   result.sort((a, b) => {
     const sa = a.status === "Active" ? 0 : 1;
     const sb = b.status === "Active" ? 0 : 1;
@@ -265,14 +243,19 @@ async function getFreeKeysForUserPersistent(userId) {
 }
 
 // ---------------------------------------------------------
-// Konfigurasi Paid Key (Premium Keys, untuk Discord Bot, loader, dll)
-// Menggunakan KV yang sama, tapi prefix berbeda: exhub:paidkey:token:<key>
+// Konfigurasi Paid Key (Premium Keys) via KV
+//  - Record per token: exhub:paidkey:token:<KEY>
+//  - Index per user:   exhub:paidkey:user:<discordId> -> [KEY, ...]
 // ---------------------------------------------------------
 
 const PAID_KEY_PREFIX = "EXHUBPAID";
 
 function paidTokenKey(token) {
   return `exhub:paidkey:token:${token}`;
+}
+
+function paidUserIndexKey(discordId) {
+  return `exhub:paidkey:user:${discordId}`;
 }
 
 function normalizePaidKeyRecord(raw) {
@@ -285,6 +268,7 @@ function normalizePaidKeyRecord(raw) {
     type: raw.type || raw.tier || null,
     valid: !!raw.valid,
     deleted: !!raw.deleted,
+    ownerDiscordId: raw.ownerDiscordId || null,
   };
 }
 
@@ -294,32 +278,149 @@ async function getPaidKeyRecord(token) {
   return normalizePaidKeyRecord(rec);
 }
 
+/**
+ * Simpan record PaidKey:
+ *  - token
+ *  - expiresAfter
+ *  - type: 'month' | 'lifetime'
+ *  - valid: false (belum redeem) / true (sudah redeem)
+ *  - deleted: soft delete
+ *  - ownerDiscordId: pemilik (supaya bisa muncul di dashboard akun yang sama)
+ */
 async function setPaidKeyRecord(payload) {
   if (!payload || !payload.token) return null;
 
   const now = nowMs();
+  const token = payload.token;
+  const ownerDiscordId = payload.ownerDiscordId
+    ? String(payload.ownerDiscordId)
+    : null;
+
+  // baca record lama kalau ada (untuk preserve createdAt / expiresAfter kalau tidak dikirim)
+  const existingRaw = await kvGetJson(paidTokenKey(token));
+  const existing = existingRaw || null;
+  const previousOwnerId =
+    existing && existing.ownerDiscordId
+      ? String(existing.ownerDiscordId)
+      : null;
+
   const rec = {
-    token: payload.token,
-    createdAt: payload.createdAt || now,
-    byIp: payload.byIp || null,
-    expiresAfter: payload.expiresAfter || 0,
-    type: payload.type || null,
-    valid: !!payload.valid,
-    deleted: !!payload.deleted,
+    token,
+    createdAt: payload.createdAt || (existing && existing.createdAt) || now,
+    byIp: payload.byIp || (existing && existing.byIp) || null,
+    expiresAfter:
+      typeof payload.expiresAfter === "number"
+        ? payload.expiresAfter
+        : existing && typeof existing.expiresAfter === "number"
+        ? existing.expiresAfter
+        : 0,
+    type: payload.type || (existing && existing.type) || null,
+    valid:
+      typeof payload.valid === "boolean"
+        ? !!payload.valid
+        : existing
+        ? !!existing.valid
+        : false,
+    deleted:
+      typeof payload.deleted === "boolean"
+        ? !!payload.deleted
+        : existing
+        ? !!existing.deleted
+        : false,
+    ownerDiscordId: ownerDiscordId || previousOwnerId || null,
   };
 
   await kvSetJson(paidTokenKey(rec.token), rec);
-  return rec;
+
+  const newOwnerId = rec.ownerDiscordId;
+
+  // hapus token dari index owner lama jika pindah
+  if (previousOwnerId && previousOwnerId !== newOwnerId) {
+    const oldIdxKey = paidUserIndexKey(previousOwnerId);
+    let oldIdx = await kvGetJson(oldIdxKey);
+    if (Array.isArray(oldIdx)) {
+      const filtered = oldIdx.filter((t) => t !== token);
+      await kvSetJson(oldIdxKey, filtered);
+    }
+  }
+
+  // tambahkan ke index owner baru
+  if (newOwnerId) {
+    const newIdxKey = paidUserIndexKey(newOwnerId);
+    let newIdx = await kvGetJson(newIdxKey);
+    if (!Array.isArray(newIdx)) newIdx = [];
+    if (!newIdx.includes(token)) {
+      newIdx.push(token);
+      await kvSetJson(newIdxKey, newIdx);
+    }
+  }
+
+  return normalizePaidKeyRecord(rec);
+}
+
+/**
+ * Ambil semua PaidKey milik Discord ID tertentu (untuk dashboard).
+ * Dikonversi ke shape keyData.keys yang dipakai dashboard.
+ */
+async function getPaidKeysForUserPersistent(discordId) {
+  if (!hasFreeKeyKV) return [];
+
+  const idxKey = paidUserIndexKey(discordId);
+  const index = await kvGetJson(idxKey);
+  const tokens = Array.isArray(index) ? index : [];
+  const now = nowMs();
+  const result = [];
+
+  for (const token of tokens) {
+    if (!token) continue;
+    const raw = await kvGetJson(paidTokenKey(token));
+    if (!raw) continue;
+    const rec = normalizePaidKeyRecord(raw);
+    if (!rec) continue;
+
+    const expired =
+      rec.expiresAfter && typeof rec.expiresAfter === "number"
+        ? now > rec.expiresAfter
+        : false;
+    const deleted = !!rec.deleted;
+
+    let providerLabel = "ExHub Paid";
+    const t = (rec.type || "").toString().toLowerCase();
+    if (t === "month") providerLabel = "PAID MONTH";
+    else if (t === "lifetime") providerLabel = "PAID LIFETIME";
+
+    let statusLabel;
+    if (deleted) statusLabel = "Deleted";
+    else if (expired) statusLabel = "Expired";
+    else if (rec.valid) statusLabel = "Active";
+    else statusLabel = "Pending";
+
+    result.push({
+      key: rec.token,
+      provider: providerLabel,
+      timeLeft: "",
+      status: statusLabel,
+      tier: "Paid",
+      expiresAtMs: rec.expiresAfter || null,
+      expiresAfter: rec.expiresAfter || null,
+      valid: rec.valid,
+      expired,
+      deleted,
+      type: rec.type || null,
+    });
+  }
+
+  result.sort((a, b) => {
+    const aTs = typeof a.expiresAfter === "number" ? a.expiresAfter : 0;
+    const bTs = typeof b.expiresAfter === "number" ? b.expiresAfter : 0;
+    return aTs - bTs;
+  });
+
+  return result;
 }
 
 // ---------------------------------------------------------
 // Helper: Ads / checkpoint state di session (per provider)
-// Struktur: req.session.freeKeyAdsState = {
-//   workink:    { ts: <number>, used: <bool> },
-//   linkvertise:{ ts: <number>, used: <bool> }
-// }
-// 1 checkpoint = 1 aksi (Generate ATAU Renew)
-// ts: waktu terakhir checkpoint dibuat
 // ---------------------------------------------------------
 
 function canonicalAdsProvider(raw) {
@@ -354,13 +455,12 @@ function markAdsUsed(req, provider) {
     ts: nowMs(),
     used: false,
   };
-  // Tidak ubah ts di sini, supaya ts tetap waktu checkpoint terakhir
   prev.used = true;
   req.session.freeKeyAdsState[provider] = prev;
 }
 
 // ---------------------------------------------------------
-// Modul utama: mount ke Express app (dipanggil dari server.js)
+// Modul utama: mount ke Express app
 // ---------------------------------------------------------
 module.exports = function mountDiscordOAuth(app) {
   // =========================
@@ -375,14 +475,12 @@ module.exports = function mountDiscordOAuth(app) {
 
   const EXHUB_API_BASE = resolveExHubApiBase();
 
-  // URL iklan Work.ink & Linkvertise (untuk tombol START)
   const WORKINK_ADS_URL =
     process.env.WORKINK_ADS_URL || "https://work.ink/23P2/exhubfreekey";
   const LINKVERTISE_ADS_URL =
     process.env.LINKVERTISE_ADS_URL ||
     "https://link-target.net/2995260/uaE3u7P8CG5D";
 
-  // OWNER_IDS sama pola dengan index.js bot (multi owner)
   const RAW_OWNER_IDS =
     process.env.OWNER_IDS ||
     process.env.OWNER_ID ||
@@ -407,7 +505,7 @@ module.exports = function mountDiscordOAuth(app) {
   }
 
   // =========================
-  // MIDDLEWARE: res.locals.user (untuk header EJS, dll)
+  // MIDDLEWARE: res.locals.user
   // =========================
   app.use((req, res, next) => {
     const user = (req.session && req.session.discordUser) || null;
@@ -441,7 +539,6 @@ module.exports = function mountDiscordOAuth(app) {
     next();
   }
 
-  // Helper kalau nanti butuh route khusus OWNER (integrasi kontrol bot)
   function requireOwner(req, res, next) {
     if (!req.session || !req.session.discordUser) {
       return res.redirect("/login-required");
@@ -452,7 +549,7 @@ module.exports = function mountDiscordOAuth(app) {
     next();
   }
 
-  // Ambil data key user dari ExHub API + Free Key KV (untuk dashboard)
+  // Ambil data key user untuk Dashboard
   async function getUserKeys(discordUser) {
     const result = {
       total: 0,
@@ -464,10 +561,9 @@ module.exports = function mountDiscordOAuth(app) {
 
     if (!discordUser) return result;
 
-    let apiKeysRaw = [];
     let bannedFlag = false;
 
-    // --- Paid / main keys dari API ExHub ---
+    // OPTIONAL: Ambil status banned dari API utama (jika ada)
     try {
       const url = new URL("bot/user-info", EXHUB_API_BASE);
       const payload = {
@@ -493,77 +589,25 @@ module.exports = function mountDiscordOAuth(app) {
         try {
           data = JSON.parse(text);
         } catch {
-          console.warn("[serverv2] user-info bukan JSON valid.");
           data = null;
         }
-
-        if (data) {
-          if (Array.isArray(data.keys)) {
-            apiKeysRaw = data.keys;
-          }
-          if (typeof data.banned === "boolean") {
-            bannedFlag = data.banned;
-          }
+        if (data && typeof data.banned === "boolean") {
+          bannedFlag = data.banned;
         }
       }
     } catch (err) {
       console.error("[serverv2] getUserKeys API error:", err);
     }
 
-    // --- Normalisasi paid keys ---
-    const normalizedPaid = apiKeysRaw.map((k) => {
-      const label =
-        k.key ||
-        k.token ||
-        k.keyToken ||
-        k.id ||
-        (typeof k === "string" ? k : JSON.stringify(k));
+    // --- Paid keys dari KV PaidKey (integrasi langsung dengan bot) ---
+    let paidKeys = [];
+    try {
+      paidKeys = await getPaidKeysForUserPersistent(discordUser.id);
+    } catch (err) {
+      console.error("[serverv2] getPaidKeysForUserPersistent error:", err);
+    }
 
-      const providerRaw = k.provider || k.source || "ExHub";
-      let providerLabel = providerRaw;
-      const p = String(providerLabel).toLowerCase();
-      if (p === "workink" || p === "work.ink") providerLabel = "Work.ink";
-      else if (p.indexOf("linkvertise") !== -1) providerLabel = "Linkvertise";
-
-      const tierRaw = k.tier || k.type || "Paid";
-      const tierLabel = tierRaw;
-
-      const statusLabel =
-        k.deleted || k.revoked
-          ? "Deleted"
-          : k.valid === false
-          ? "Invalid"
-          : "Active";
-
-      // cari timestamp expired (jika ada)
-      let expiresAtMs = null;
-      if (typeof k.expiresAtMs !== "undefined" && k.expiresAtMs != null) {
-        const tmp = parseInt(k.expiresAtMs, 10);
-        if (!isNaN(tmp)) expiresAtMs = tmp;
-      } else if (
-        typeof k.expiresAfter !== "undefined" &&
-        k.expiresAfter != null
-      ) {
-        const tmp = parseInt(k.expiresAfter, 10);
-        if (!isNaN(tmp)) expiresAtMs = tmp;
-      } else if (typeof k.expiresAt !== "undefined" && k.expiresAt != null) {
-        const tmp = parseInt(k.expiresAt, 10);
-        if (!isNaN(tmp)) expiresAtMs = tmp;
-      }
-
-      return {
-        key: String(label),
-        provider: providerLabel,
-        timeLeft: k.timeLeft || "-",
-        status: statusLabel,
-        tier: tierLabel,
-        expiresAtMs: expiresAtMs || null,
-        expiresAfter: expiresAtMs || null,
-        free: false,
-      };
-    });
-
-    // --- Free keys dari KV Upstash ---
+    // --- Free keys dari KV FreeKey ---
     let freeKeys = [];
     try {
       freeKeys = await getFreeKeysForUserPersistent(discordUser.id);
@@ -582,8 +626,7 @@ module.exports = function mountDiscordOAuth(app) {
       free: true,
     }));
 
-    // --- Gabungkan semua ---
-    const allKeys = normalizedPaid.concat(normalizedFree);
+    const allKeys = paidKeys.concat(normalizedFree);
 
     result.keys = allKeys;
     result.total = allKeys.length;
@@ -603,7 +646,6 @@ module.exports = function mountDiscordOAuth(app) {
   // ROUTES – PUBLIC PAGES
   // =========================
 
-  // Kalau sudah login, /discord-login langsung redirect ke /dashboard
   app.get("/discord-login", (req, res) => {
     const already = req.session && req.session.discordUser;
     if (already) {
@@ -629,7 +671,6 @@ module.exports = function mountDiscordOAuth(app) {
     res.render("dashboard", { keyData });
   });
 
-  // Alias lama → baru (kalau ada link /get-keyfree lama)
   app.get("/get-keyfree", requireAuth, (req, res) => {
     const ads = req.query.ads || "workink";
     res.redirect("/getfreekey?ads=" + encodeURIComponent(ads));
@@ -643,10 +684,9 @@ module.exports = function mountDiscordOAuth(app) {
     const userId = discordUser.id;
 
     const doneFlag = String(req.query.done || "") === "1";
-    const queryAds = req.query.ads;
+    const queryAds = req.query.ads || "workink";
     let adsProvider = canonicalAdsProvider(queryAds);
 
-    // Simpan/ambil provider terakhir di session
     if (req.session) {
       if (queryAds) {
         req.session.lastFreeKeyAdsProvider = adsProvider;
@@ -655,15 +695,10 @@ module.exports = function mountDiscordOAuth(app) {
       }
     }
 
-    // Jika selesai iklan (?done=1), tandai checkpoint & redirect ke URL bersih (?ads=...)
     if (doneFlag && req.session) {
       const existingState = getAdsState(req, adsProvider);
       const now = nowMs();
 
-      // Anti-spam server-side:
-      // Kalau checkpoint terakhir SUDAH dipakai (used === true)
-      // dan masih dalam window FREEKEY_ADS_COOLDOWN_MS,
-      // jangan bikin checkpoint baru (anggap spam "Open" dari ads).
       if (
         existingState &&
         existingState.used &&
@@ -679,22 +714,19 @@ module.exports = function mountDiscordOAuth(app) {
       return res.redirect("/getfreekey?ads=" + encodeURIComponent(adsProvider));
     }
 
-    // State ads dari session
     const adsState = getAdsState(req, adsProvider);
-    const adsProgressDone = !!adsState; // sudah punya checkpoint
-    const adsUsed = !!(adsState && adsState.used); // checkpoint sudah dipakai?
+    const adsProgressDone = !!adsState;
+    const adsUsed = !!(adsState && adsState.used);
 
     const adsUrl =
       adsProvider === "linkvertise" ? LINKVERTISE_ADS_URL : WORKINK_ADS_URL;
 
-    // Free key dari KV (persisten, key di bawah exhub:freekey:*)
     const freeKeys = await getFreeKeysForUserPersistent(userId);
     const maxKeys = FREE_KEY_MAX_PER_USER;
-    const keys = freeKeys; // {token,provider,timeLeftLabel,status,expiresAfter}
+    const keys = freeKeys;
 
     const capacityOk = keys.length < maxKeys;
 
-    // Satu checkpoint -> tepat 1 aksi (Generate ATAU Renew)
     const allowGenerate =
       capacityOk &&
       (!REQUIRE_FREEKEY_ADS_CHECKPOINT || (adsProgressDone && !adsUsed));
@@ -725,7 +757,7 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // --------------------------------------------------
-  // POST /getfreekey/generate – Generate Free Key baru
+  // POST /getfreekey/generate
   // --------------------------------------------------
   app.post("/getfreekey/generate", requireAuth, async (req, res) => {
     const discordUser = req.session.discordUser;
@@ -767,7 +799,6 @@ module.exports = function mountDiscordOAuth(app) {
         ip,
       });
 
-      // Satu checkpoint habis dipakai 1 aksi
       markAdsUsed(req, adsProvider);
 
       return res.redirect(redirectBase);
@@ -782,7 +813,7 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // --------------------------------------------------
-  // POST /getfreekey/extend – Renew (perpanjang) free key
+  // POST /getfreekey/extend – Renew free key
   // --------------------------------------------------
   app.post("/getfreekey/extend", requireAuth, async (req, res) => {
     const discordUser = req.session.discordUser;
@@ -824,7 +855,6 @@ module.exports = function mountDiscordOAuth(app) {
       }
 
       await extendFreeKeyPersistent(token);
-      // Satu checkpoint habis dipakai 1 aksi
       markAdsUsed(req, adsProvider);
 
       return res.redirect(redirectBase);
@@ -840,7 +870,6 @@ module.exports = function mountDiscordOAuth(app) {
 
   // --------------------------------------------------
   // API: GET /api/freekey/isValidate/:key
-  // { valid, deleted, expired, info: {...} }
   // --------------------------------------------------
   app.get("/api/freekey/isValidate/:key", async (req, res) => {
     const token = (req.params.key || "").trim();
@@ -887,7 +916,6 @@ module.exports = function mountDiscordOAuth(app) {
 
   // --------------------------------------------------
   // API: POST /api/freekey/delete/:key
-  // Dipanggil dari dashboard ( tombol Delete ) untuk Free Key.
   // --------------------------------------------------
   app.post("/api/freekey/delete/:key", requireAuth, async (req, res) => {
     const discordUser = req.session.discordUser;
@@ -915,18 +943,20 @@ module.exports = function mountDiscordOAuth(app) {
 
   // --------------------------------------------------
   // API: POST /api/paidkey/createOrUpdate
-  // Dipanggil dari Discord Bot (generate key / update status).
-  // Body EXPECTED:
+  //
+  // Dipanggil dari Discord Bot:
   // {
   //   "valid": false,
   //   "deleted": false,
   //   "expired": false,
+  //   "ownerDiscordId": "1234567890",   // <- wajib diisi agar ter-link ke akun dashboard
   //   "info": {
   //     "token": "EXHUBPAID-XXXX",
   //     "createdAt": 1736930000000,
   //     "byIp": "discord-bot",
   //     "expiresAfter": 1739522000000,
-  //     "type": "month" | "lifetime"
+  //     "type": "month" | "lifetime",
+  //     "ownerDiscordId": "1234567890"  // optional mirror
   //   }
   // }
   // --------------------------------------------------
@@ -946,6 +976,12 @@ module.exports = function mountDiscordOAuth(app) {
       });
     }
 
+    const ownerDiscordId =
+      body.ownerDiscordId ||
+      info.ownerDiscordId ||
+      info.discordId ||
+      null;
+
     try {
       const rec = await setPaidKeyRecord({
         token,
@@ -955,6 +991,7 @@ module.exports = function mountDiscordOAuth(app) {
         type: info.type,
         valid: !!body.valid,
         deleted: !!body.deleted,
+        ownerDiscordId,
       });
 
       return res.json({
@@ -971,7 +1008,6 @@ module.exports = function mountDiscordOAuth(app) {
 
   // --------------------------------------------------
   // API: GET /api/paidkey/isValidate/:key
-  // Response: { valid, deleted, expired, info: {...} }
   // --------------------------------------------------
   app.get("/api/paidkey/isValidate/:key", async (req, res) => {
     const token = (req.params.key || "").trim();
@@ -1015,6 +1051,7 @@ module.exports = function mountDiscordOAuth(app) {
           byIp: rec.byIp,
           expiresAfter: rec.expiresAfter,
           type: rec.type || null,
+          ownerDiscordId: rec.ownerDiscordId || null,
         },
       });
     } catch (err) {
@@ -1030,8 +1067,7 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // --------------------------------------------------
-  // API kecil untuk BOT / frontend:
-  // GET /api/discord/owners → list owner IDs
+  // API kecil: GET /api/discord/owners
   // --------------------------------------------------
   app.get("/api/discord/owners", (req, res) => {
     res.json({ ownerIds: OWNER_IDS });
@@ -1146,7 +1182,6 @@ module.exports = function mountDiscordOAuth(app) {
 
       const isOwner = isOwnerId(user.id);
 
-      // Banner + data lain disimpan di session
       req.session.discordUser = {
         id: user.id,
         username: user.username,
@@ -1159,7 +1194,6 @@ module.exports = function mountDiscordOAuth(app) {
         isOwner,
       };
 
-      // Simpan snapshot profil Discord ke KV supaya tetap ada meskipun user Sign Out
       if (hasFreeKeyKV) {
         try {
           await kvSetJson(discordUserProfileKey(user.id), {
@@ -1186,7 +1220,6 @@ module.exports = function mountDiscordOAuth(app) {
     }
   });
 
-  // Logout Discord (hanya hapus session, tidak hapus data di KV)
   app.post("/logout", (req, res) => {
     if (req.session) {
       req.session.discordUser = null;
