@@ -1,5 +1,5 @@
 // serverv2.js
-// Modul fitur: Discord OAuth Login + Dashboard ExHub + Get Free Key
+// Modul fitur: Discord OAuth Login + Dashboard ExHub + Get Free Key + Paid Key API
 // DIPANGGIL dari server.js utama dengan: require("./serverv2")(app);
 
 const crypto = require("crypto");
@@ -19,7 +19,7 @@ function resolveExHubApiBase() {
 }
 
 // ---------------------------------------------------------
-// Upstash KV khusus Free Key
+// Upstash KV khusus Free Key & Paid Key
 // Pola DISESUAIKAN dengan server.js:
 // - KV_REST_API_URL = base URL
 // - GET:  {KV_REST_API_URL}/GET/<key>
@@ -79,6 +79,13 @@ async function kvSetJson(key, value) {
 }
 
 // ---------------------------------------------------------
+// Util time
+// ---------------------------------------------------------
+function nowMs() {
+  return Date.now();
+}
+
+// ---------------------------------------------------------
 // Konfigurasi Free Key (persisten via Upstash, mirip pola server.js)
 // ---------------------------------------------------------
 
@@ -95,10 +102,6 @@ const REQUIRE_FREEKEY_ADS_CHECKPOINT =
 const FREEKEY_ADS_COOLDOWN_MS = Number(
   process.env.FREEKEY_ADS_COOLDOWN_MS || 5 * 60 * 1000
 );
-
-function nowMs() {
-  return Date.now();
-}
 
 // Prefix key di Upstash (disamakan pola "exhub:*" seperti server.js)
 function userIndexKey(userId) {
@@ -262,6 +265,54 @@ async function getFreeKeysForUserPersistent(userId) {
 }
 
 // ---------------------------------------------------------
+// Konfigurasi Paid Key (Premium Keys, untuk Discord Bot, loader, dll)
+// Menggunakan KV yang sama, tapi prefix berbeda: exhub:paidkey:token:<key>
+// ---------------------------------------------------------
+
+const PAID_KEY_PREFIX = "EXHUBPAID";
+
+function paidTokenKey(token) {
+  return `exhub:paidkey:token:${token}`;
+}
+
+function normalizePaidKeyRecord(raw) {
+  if (!raw) return null;
+  return {
+    token: raw.token,
+    createdAt: raw.createdAt || 0,
+    byIp: raw.byIp || null,
+    expiresAfter: raw.expiresAfter || 0,
+    type: raw.type || raw.tier || null,
+    valid: !!raw.valid,
+    deleted: !!raw.deleted,
+  };
+}
+
+async function getPaidKeyRecord(token) {
+  const rec = await kvGetJson(paidTokenKey(token));
+  if (!rec) return null;
+  return normalizePaidKeyRecord(rec);
+}
+
+async function setPaidKeyRecord(payload) {
+  if (!payload || !payload.token) return null;
+
+  const now = nowMs();
+  const rec = {
+    token: payload.token,
+    createdAt: payload.createdAt || now,
+    byIp: payload.byIp || null,
+    expiresAfter: payload.expiresAfter || 0,
+    type: payload.type || null,
+    valid: !!payload.valid,
+    deleted: !!payload.deleted,
+  };
+
+  await kvSetJson(paidTokenKey(rec.token), rec);
+  return rec;
+}
+
+// ---------------------------------------------------------
 // Helper: Ads / checkpoint state di session (per provider)
 // Struktur: req.session.freeKeyAdsState = {
 //   workink:    { ts: <number>, used: <bool> },
@@ -351,7 +402,7 @@ module.exports = function mountDiscordOAuth(app) {
 
   if (!hasFreeKeyKV) {
     console.warn(
-      "[serverv2] PERINGATAN: KV_REST_API_URL / KV_REST_API_TOKEN tidak diset – Free Key TIDAK akan persisten."
+      "[serverv2] PERINGATAN: KV_REST_API_URL / KV_REST_API_TOKEN tidak diset – Free Key / Paid Key TIDAK akan persisten."
     );
   }
 
@@ -863,6 +914,122 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // --------------------------------------------------
+  // API: POST /api/paidkey/createOrUpdate
+  // Dipanggil dari Discord Bot (generate key / update status).
+  // Body EXPECTED:
+  // {
+  //   "valid": false,
+  //   "deleted": false,
+  //   "expired": false,
+  //   "info": {
+  //     "token": "EXHUBPAID-XXXX",
+  //     "createdAt": 1736930000000,
+  //     "byIp": "discord-bot",
+  //     "expiresAfter": 1739522000000,
+  //     "type": "month" | "lifetime"
+  //   }
+  // }
+  // --------------------------------------------------
+  app.post("/api/paidkey/createOrUpdate", async (req, res) => {
+    if (!hasFreeKeyKV) {
+      return res.status(500).json({ ok: false, error: "KV_NOT_CONFIGURED" });
+    }
+
+    const body = req.body || {};
+    const info = body.info || {};
+    const token = (info.token || "").trim();
+
+    if (!token) {
+      return res.status(400).json({
+        ok: false,
+        error: "TOKEN_REQUIRED",
+      });
+    }
+
+    try {
+      const rec = await setPaidKeyRecord({
+        token,
+        createdAt: info.createdAt,
+        byIp: info.byIp,
+        expiresAfter: info.expiresAfter,
+        type: info.type,
+        valid: !!body.valid,
+        deleted: !!body.deleted,
+      });
+
+      return res.json({
+        ok: true,
+        record: rec,
+      });
+    } catch (err) {
+      console.error("[serverv2] /api/paidkey/createOrUpdate error:", err);
+      return res
+        .status(500)
+        .json({ ok: false, error: "INTERNAL_ERROR" });
+    }
+  });
+
+  // --------------------------------------------------
+  // API: GET /api/paidkey/isValidate/:key
+  // Response: { valid, deleted, expired, info: {...} }
+  // --------------------------------------------------
+  app.get("/api/paidkey/isValidate/:key", async (req, res) => {
+    const token = (req.params.key || "").trim();
+    const now = nowMs();
+
+    if (!token) {
+      return res.json({
+        valid: false,
+        deleted: false,
+        expired: false,
+        info: null,
+      });
+    }
+
+    try {
+      const rec = await getPaidKeyRecord(token);
+
+      if (!rec) {
+        return res.json({
+          valid: false,
+          deleted: false,
+          expired: false,
+          info: null,
+        });
+      }
+
+      const expired =
+        rec.expiresAfter && typeof rec.expiresAfter === "number"
+          ? now > rec.expiresAfter
+          : false;
+      const deleted = !!rec.deleted;
+      const valid = !!rec.valid && !deleted && !expired;
+
+      return res.json({
+        valid,
+        deleted,
+        expired,
+        info: {
+          token: rec.token,
+          createdAt: rec.createdAt,
+          byIp: rec.byIp,
+          expiresAfter: rec.expiresAfter,
+          type: rec.type || null,
+        },
+      });
+    } catch (err) {
+      console.error("[serverv2] /api/paidkey/isValidate error:", err);
+      return res.status(500).json({
+        valid: false,
+        deleted: false,
+        expired: false,
+        info: null,
+        error: "INTERNAL_ERROR",
+      });
+    }
+  });
+
+  // --------------------------------------------------
   // API kecil untuk BOT / frontend:
   // GET /api/discord/owners → list owner IDs
   // --------------------------------------------------
@@ -1035,6 +1202,6 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   console.log(
-    "[serverv2] Discord OAuth + Dashboard + GetFreeKey + FreeKey API routes mounted."
+    "[serverv2] Discord OAuth + Dashboard + GetFreeKey + FreeKey API + PaidKey API routes mounted."
   );
 };
