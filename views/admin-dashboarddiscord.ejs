@@ -5,19 +5,31 @@
   <title><%= title || 'Admin – Discord Key Manager' %></title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="color-scheme" content="dark" />
   <link rel="icon" type="image/png" href="/img/ExLogo2.png" />
-  <link rel="stylesheet" href="/css/main.css" />
+  <!-- GANTI KE CSS V2 -->
+  <link rel="stylesheet" href="/css/mainv2.css" />
 </head>
-<body class="page-dark">
+<body class="page-dark admin-page admin-page--discord">
   <div class="container">
     <div class="admin-dashboard discord-admin-page">
       <!-- ================= HEADER + METRICS + SEARCH ================= -->
       <div class="key-admin-shell admin-key-shell">
         <header class="key-admin-header admin-key-header">
           <div class="key-admin-header-main admin-key-header-main">
-            <h1 class="key-admin-title admin-key-title">
-              Admin – Discord User &amp; Key Manager
-            </h1>
+            <div class="key-admin-header-topline">
+              <h1 class="key-admin-title admin-key-title">
+                Admin – Discord User &amp; Key Manager
+              </h1>
+
+              <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+                <span class="badge badge-admin-session">
+                  <span class="badge-dot"></span>
+                  Admin session
+                </span>
+              <% } %>
+            </div>
+
             <p class="key-admin-subtitle admin-key-subtitle">
               Monitor semua <strong>user Discord</strong> yang pernah order / redeem key
               di sistem ExHub. Lihat total key per user, status <strong>Paid / Free</strong>,
@@ -120,6 +132,7 @@
             <input
               type="text"
               name="q"
+              class="key-input"
               placeholder="Cari username / tag / Discord ID..."
               value="<%= query || '' %>"
               autocomplete="off"
@@ -128,7 +141,7 @@
 
           <div class="key-admin-filters-group">
             <span>Filter</span>
-            <select name="filter">
+            <select name="filter" class="key-select">
               <%
                 var f = filter || 'all';
               %>
@@ -148,15 +161,17 @@
             </select>
           </div>
 
-          <button type="submit" class="key-btn key-btn-xs key-btn-outline">
-            Search
-          </button>
+          <div class="key-admin-filters-actions">
+            <button type="submit" class="key-btn key-btn-xs key-btn-outline">
+              Search
+            </button>
 
-          <% if (query || (filter && filter !== 'all')) { %>
-            <a href="/admin/discord" class="key-btn key-btn-xs key-btn-ghost">
-              Clear
-            </a>
-          <% } %>
+            <% if (query || (filter && filter !== 'all')) { %>
+              <a href="/admin/discord" class="key-btn key-btn-xs key-btn-ghost">
+                Clear
+              </a>
+            <% } %>
+          </div>
         </form>
       </div>
 
@@ -193,7 +208,7 @@
                 <tbody>
                   <% userStats.forEach(function(row) { %>
                     <tr
-                      class="<%= selectedUser && selectedUser.discordId === row.discordId ? 'key-row-highlight' : '' %>"
+                      class="discord-user-row <%= selectedUser && selectedUser.discordId === row.discordId ? 'key-row-highlight' : '' %>"
                       data-discord-id="<%= row.discordId %>"
                     >
                       <!-- DISCORD USER -->
@@ -204,10 +219,10 @@
                               <img
                                 src="<%= row.avatarUrl %>"
                                 alt="Avatar"
-                                style="width:32px;height:32px;border-radius:999px;object-fit:cover;"
+                                class="avatar-img avatar-img--sm"
                               />
                             <% } else { %>
-                              <div class="avatar-fallback">
+                              <div class="avatar-fallback avatar-fallback--sm">
                                 <%= (row.globalName || row.username || '?').charAt(0).toUpperCase() %>
                               </div>
                             <% } %>
@@ -310,7 +325,7 @@
           <% } %>
         </section>
 
-        <!-- ========== SELECTED USER DETAIL (FULL WIDTH DI BAWAH) ========== -->
+        <!-- ========== SELECTED USER DETAIL (2-COLUMN LAYOUT) ========== -->
         <section class="card admin-card-user-detail" style="margin-top:18px;">
           <div class="card-header">
             <div class="card-header-main">
@@ -332,7 +347,7 @@
             </div>
 
             <% if (selectedUser && selectedUser.discordId) { %>
-              <div class="admin-inline-actions">
+              <div class="admin-inline-actions admin-inline-actions--stack">
                 <!-- BAN / UNBAN -->
                 <% if (selectedUser.banned) { %>
                   <form
@@ -368,7 +383,7 @@
                   onsubmit="return confirm('Hapus SEMUA keys milik user ini? Tindakan tidak dapat dibatalkan.');"
                 >
                   <input type="hidden" name="discordId" value="<%= selectedUser.discordId %>" />
-                  <button type="submit" class="key-btn key-btn-xs key-btn-outline">
+                  <button type="submit" class="key-btn key-btn-xs key-btn-outline key-btn-danger-soft">
                     Delete All User Keys
                   </button>
                 </form>
@@ -384,306 +399,323 @@
               </p>
             </div>
           <% } else { %>
-            <!-- BANNER (JIKA ADA) -->
-            <% if (selectedUser.bannerUrl) { %>
-              <div class="discord-user-banner" style="margin-bottom:10px;">
-                <img
-                  src="<%= selectedUser.bannerUrl %>"
-                  alt="Banner"
-                  style="width:100%;max-height:140px;object-fit:cover;border-radius:12px;"
-                />
-              </div>
-            <% } %>
-
-            <!-- SUMMARY TILE USER -->
-            <div class="discord-user-summary" style="margin-bottom:14px;">
-              <div class="discord-user-summary-main">
-                <div class="discord-user-avatar">
-                  <% if (selectedUser.avatarUrl) { %>
+            <!-- LAYOUT 2 KOLOM: PROFIL (KIRI) + KEYS (KANAN) -->
+            <div class="discord-detail-layout">
+              <!-- KIRI: DISCORD PROFILE CARD -->
+              <aside class="discord-detail-left">
+                <% if (selectedUser.bannerUrl) { %>
+                  <div class="discord-user-banner">
                     <img
-                      src="<%= selectedUser.avatarUrl %>"
-                      alt="Avatar"
-                      style="width:48px;height:48px;border-radius:999px;object-fit:cover;"
+                      src="<%= selectedUser.bannerUrl %>"
+                      alt="Banner"
+                      class="discord-user-banner-img"
                     />
-                  <% } else { %>
-                    <div class="avatar-fallback">
-                      <%= (selectedUser.globalName || selectedUser.username || '?').charAt(0).toUpperCase() %>
+                  </div>
+                <% } %>
+
+                <div class="discord-user-summary">
+                  <div class="discord-user-summary-main">
+                    <div class="discord-user-avatar">
+                      <% if (selectedUser.avatarUrl) { %>
+                        <img
+                          src="<%= selectedUser.avatarUrl %>"
+                          alt="Avatar"
+                          class="avatar-img avatar-img--lg"
+                        />
+                      <% } else { %>
+                        <div class="avatar-fallback avatar-fallback--lg">
+                          <%= (selectedUser.globalName || selectedUser.username || '?').charAt(0).toUpperCase() %>
+                        </div>
+                      <% } %>
                     </div>
-                  <% } %>
-                </div>
-                <div class="discord-user-summary-meta">
-                  <div class="discord-user-name">
-                    <%= selectedUser.globalName || selectedUser.username || 'Unknown' %>
+                    <div class="discord-user-summary-meta">
+                      <div class="discord-user-name">
+                        <%= selectedUser.globalName || selectedUser.username || 'Unknown' %>
+                      </div>
+                      <div class="table-sub-text mono">
+                        <%= selectedUser.tag || ((selectedUser.username || 'user') + '#' + (selectedUser.discriminator || '0000')) %>
+                      </div>
+                      <div class="table-sub-text mono">
+                        ID: <%= selectedUser.discordId %>
+                      </div>
+                      <% if (typeof selectedUser.guildCount !== 'undefined') { %>
+                        <div class="table-sub-text">
+                          Guilds: <%= selectedUser.guildCount %> server
+                        </div>
+                      <% } %>
+                      <% if (selectedUser.email) { %>
+                        <div class="table-sub-text mono">
+                          Email: <%= selectedUser.email %>
+                        </div>
+                      <% } %>
+                    </div>
                   </div>
-                  <div class="table-sub-text mono">
-                    <%= selectedUser.tag || ((selectedUser.username || 'user') + '#' + (selectedUser.discriminator || '0000')) %>
+
+                  <div class="discord-user-summary-stats">
+                    <div class="discord-user-summary-pill">
+                      <div class="discord-user-summary-label">Total Keys</div>
+                      <div class="discord-user-summary-value">
+                        <%= selectedUserSummary && typeof selectedUserSummary.total !== 'undefined'
+                              ? selectedUserSummary.total : (selectedUser.totalKeys || 0) %>
+                      </div>
+                    </div>
+                    <div class="discord-user-summary-pill">
+                      <div class="discord-user-summary-label">Paid</div>
+                      <div class="discord-user-summary-value">
+                        <%= selectedUserSummary && typeof selectedUserSummary.paid !== 'undefined'
+                              ? selectedUserSummary.paid : (selectedUser.paidKeys || 0) %>
+                      </div>
+                    </div>
+                    <div class="discord-user-summary-pill">
+                      <div class="discord-user-summary-label">Free</div>
+                      <div class="discord-user-summary-value">
+                        <%= selectedUserSummary && typeof selectedUserSummary.free !== 'undefined'
+                              ? selectedUserSummary.free : (selectedUser.freeKeys || 0) %>
+                      </div>
+                    </div>
+                    <div class="discord-user-summary-pill">
+                      <div class="discord-user-summary-label">Active</div>
+                      <div class="discord-user-summary-value">
+                        <%= selectedUserSummary && typeof selectedUserSummary.active !== 'undefined'
+                              ? selectedUserSummary.active : (selectedUser.activeKeys || 0) %>
+                      </div>
+                    </div>
+                    <div class="discord-user-summary-pill">
+                      <div class="discord-user-summary-label">Status</div>
+                      <div class="discord-user-summary-value">
+                        <% if (selectedUser.banned) { %>
+                          BANNED
+                        <% } else { %>
+                          OK
+                        <% } %>
+                      </div>
+                    </div>
                   </div>
-                  <div class="table-sub-text mono">
-                    ID: <%= selectedUser.discordId %>
-                  </div>
-                  <% if (typeof selectedUser.guildCount !== 'undefined') { %>
+
+                  <div class="discord-user-summary-footer">
                     <div class="table-sub-text">
-                      Guilds: <%= selectedUser.guildCount %> server
+                      Last Login:
+                      <% if (selectedUser.lastLoginAtWITA || selectedUser.lastLoginAtWIB) { %>
+                        <strong><%= selectedUser.lastLoginAtWITA || '-' %></strong>
+                        &nbsp;(<%= selectedUser.lastLoginAtWIB || '' %>)
+                      <% } else { %>
+                        <strong><%= selectedUser.lastLoginAtLabel || '-' %></strong>
+                      <% } %>
                     </div>
-                  <% } %>
-                  <% if (selectedUser.email) { %>
-                    <div class="table-sub-text mono">
-                      Email: <%= selectedUser.email %>
-                    </div>
-                  <% } %>
+                  </div>
                 </div>
-              </div>
+              </aside>
 
-              <div class="discord-user-summary-stats">
-                <div class="discord-user-summary-pill">
-                  <div class="discord-user-summary-label">Total Keys</div>
-                  <div class="discord-user-summary-value">
-                    <%= selectedUserSummary && typeof selectedUserSummary.total !== 'undefined'
-                          ? selectedUserSummary.total : (selectedUser.totalKeys || 0) %>
+              <!-- KANAN: KEY MANAGEMENT -->
+              <div class="discord-detail-right">
+                <% if (!selectedUserKeys || selectedUserKeys.length === 0) { %>
+                  <div class="empty-state small">
+                    <p>
+                      Tidak ada key yang tercatat untuk user ini
+                      (kemungkinan semua sudah dihapus atau belum pernah order).
+                    </p>
                   </div>
-                </div>
-                <div class="discord-user-summary-pill">
-                  <div class="discord-user-summary-label">Paid</div>
-                  <div class="discord-user-summary-value">
-                    <%= selectedUserSummary && typeof selectedUserSummary.paid !== 'undefined'
-                          ? selectedUserSummary.paid : (selectedUser.paidKeys || 0) %>
-                  </div>
-                </div>
-                <div class="discord-user-summary-pill">
-                  <div class="discord-user-summary-label">Free</div>
-                  <div class="discord-user-summary-value">
-                    <%= selectedUserSummary && typeof selectedUserSummary.free !== 'undefined'
-                          ? selectedUserSummary.free : (selectedUser.freeKeys || 0) %>
-                  </div>
-                </div>
-                <div class="discord-user-summary-pill">
-                  <div class="discord-user-summary-label">Active</div>
-                  <div class="discord-user-summary-value">
-                    <%= selectedUserSummary && typeof selectedUserSummary.active !== 'undefined'
-                          ? selectedUserSummary.active : (selectedUser.activeKeys || 0) %>
-                  </div>
-                </div>
-                <div class="discord-user-summary-pill">
-                  <div class="discord-user-summary-label">Status</div>
-                  <div class="discord-user-summary-value">
-                    <% if (selectedUser.banned) { %>
-                      BANNED
-                    <% } else { %>
-                      OK
-                    <% } %>
-                  </div>
-                </div>
-              </div>
-
-              <div class="table-sub-text" style="margin-top:6px;">
-                Last Login:
-                <% if (selectedUser.lastLoginAtWITA || selectedUser.lastLoginAtWIB) { %>
-                  <strong><%= selectedUser.lastLoginAtWITA || '-' %></strong>
-                  &nbsp;(<%= selectedUser.lastLoginAtWIB || '' %>)
                 <% } else { %>
-                  <strong><%= selectedUser.lastLoginAtLabel || '-' %></strong>
+                  <div class="discord-keys-header">
+                    <div>
+                      <h3 class="section-title xsmall">Key Management</h3>
+                      <p class="card-description small">
+                        Total keys milik user ini:
+                        <strong><%= selectedUserKeys.length %></strong>.
+                        Anda dapat mengubah <code>createdAt</code>,
+                        mengatur <code>time left</code>,
+                        dan menjalankan <strong>Renew</strong> atau <strong>Delete</strong>.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="table-wrapper key-admin-table-wrapper">
+                    <table class="table table-compact key-table-activity key-table-activity--detail">
+                      <thead>
+                        <tr>
+                          <th>Token</th>
+                          <th>Tier / Type</th>
+                          <th>Created / Expires</th>
+                          <th>Status</th>
+                          <th class="key-col-actions">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <% selectedUserKeys.forEach(function(k) { %>
+                          <tr id="discord-<%= encodeURIComponent(selectedUser.discordId) %>-token-<%= encodeURIComponent(k.token || k.key) %>">
+                            <!-- TOKEN -->
+                            <td class="key-cell-token">
+                              <div class="token-row">
+                                <span class="key-token mono"><%= k.token || k.key %></span>
+                              </div>
+                              <div class="table-sub-text">
+                                <%= k.provider || k.source || (k.free ? 'Free' : 'Paid') %>
+                              </div>
+                            </td>
+
+                            <!-- TIER / TYPE -->
+                            <td class="table-main-text">
+                              <div class="key-tier-label">
+                                <strong>
+                                  <%= (k.tier || k.type || (k.free ? 'Free' : 'Paid')) %>
+                                </strong>
+                              </div>
+                              <div class="table-sub-text">
+                                <% if (k.free) { %>
+                                  Free key
+                                <% } else { %>
+                                  Paid key
+                                <% } %>
+                              </div>
+                            </td>
+
+                            <!-- CREATED / EXPIRES (INLINE FORM) -->
+                            <td class="key-cell-edit">
+                              <form
+                                action="/admin/discord/update-key"
+                                method="POST"
+                                class="admin-key-inline-form"
+                                autocomplete="off"
+                              >
+                                <input type="hidden" name="discordId" value="<%= selectedUser.discordId %>" />
+                                <input type="hidden" name="token" value="<%= k.token || k.key %>" />
+
+                                <div class="admin-key-inline-grid">
+                                  <!-- CREATED AT (ABSOLUTE) -->
+                                  <div class="admin-key-field">
+                                    <div class="table-sub-text">createdAt (ISO / timestamp)</div>
+                                    <input
+                                      type="text"
+                                      name="createdAt"
+                                      class="key-input key-input-sm"
+                                      value="<%= k.createdAt || '' %>"
+                                      placeholder="ISO / timestamp"
+                                      autocomplete="off"
+                                    />
+                                    <div class="table-sub-text">
+                                      <%= k.createdAtLabel || '-' %>
+                                    </div>
+                                  </div>
+
+                                  <!-- EXPIRES TTL (RELATIVE, HH:MM:SS) -->
+                                  <div class="admin-key-field">
+                                    <div class="table-sub-text">
+                                      time left (HH:MM:SS)
+                                    </div>
+                                    <input
+                                      type="text"
+                                      name="expiresAt"
+                                      class="key-input key-input-sm admin-ttl-input"
+                                      value="<%=
+                                        (k.status === 'Active' &&
+                                         k.timeLeftLabel &&
+                                         k.timeLeftLabel !== 'Expired')
+                                          ? k.timeLeftLabel
+                                          : ''
+                                      %>"
+                                      placeholder="HH:MM:SS"
+                                      autocomplete="off"
+                                    />
+                                    <div class="table-sub-text">
+                                      Current: <%= k.timeLeftLabel || '-' %>
+                                    </div>
+                                  </div>
+
+                                  <!-- EXPIRES LABEL (ABSOLUTE WITA / WIB) -->
+                                  <div class="admin-key-field admin-key-field--full">
+                                    <div class="table-sub-text">expiresAt (WITA / WIB)</div>
+                                    <div class="table-sub-text">
+                                      <%= k.expiresAtLabel || '-' %>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div class="admin-key-inline-actions">
+                                  <button
+                                    type="submit"
+                                    class="key-btn key-btn-xs key-btn-primary"
+                                  >
+                                    Save
+                                  </button>
+                                </div>
+                              </form>
+                            </td>
+
+                            <!-- STATUS + LIVE COUNTDOWN -->
+                            <td class="key-cell-status">
+                              <%
+                                var statusLabel = k.status || 'Active';
+                                var statusClass =
+                                  statusLabel === 'Active'
+                                    ? 'status-pill status-pill--active'
+                                    : statusLabel === 'Expired'
+                                    ? 'status-pill status-pill--expired'
+                                    : 'status-pill status-pill--pending';
+                              %>
+                              <span
+                                class="<%= statusClass %>"
+                                data-status-pill="1"
+                                data-token="<%= k.token || k.key %>"
+                              >
+                                <span class="status-pill-dot"></span>
+                                <span class="status-pill-text"><%= statusLabel %></span>
+                              </span>
+                              <div
+                                class="table-sub-text time-left-container"
+                                data-token="<%= k.token || k.key %>"
+                                data-expires-ms="<%= k.expiresAtMs || '' %>"
+                              >
+                                Time left:
+                                <span class="time-left-text">
+                                  <%= k.timeLeftLabel || '-' %>
+                                </span>
+                              </div>
+                            </td>
+
+                            <!-- ACTIONS -->
+                            <td class="key-cell-actions key-cell-actions--vertical">
+                              <!-- RENEW -->
+                              <form
+                                action="/admin/discord/renew-key"
+                                method="POST"
+                                class="admin-inline-form"
+                                onsubmit="return confirm('Renew key ini (extend expiry)?');"
+                              >
+                                <input type="hidden" name="discordId" value="<%= selectedUser.discordId %>" />
+                                <input type="hidden" name="token" value="<%= k.token || k.key %>" />
+                                <button
+                                  type="submit"
+                                  class="key-btn key-btn-xs key-btn-ghost"
+                                >
+                                  Renew
+                                </button>
+                              </form>
+
+                              <!-- DELETE -->
+                              <form
+                                action="/admin/discord/delete-key"
+                                method="POST"
+                                class="admin-inline-form"
+                                onsubmit="return confirm('Delete key ini dari akun user?');"
+                              >
+                                <input type="hidden" name="discordId" value="<%= selectedUser.discordId %>" />
+                                <input type="hidden" name="token" value="<%= k.token || k.key %>" />
+                                <button
+                                  type="submit"
+                                  class="key-btn key-btn-xs key-btn-outline key-btn-danger-soft"
+                                >
+                                  Delete
+                                </button>
+                              </form>
+                            </td>
+                          </tr>
+                        <% }); %>
+                      </tbody>
+                    </table>
+                  </div>
                 <% } %>
               </div>
             </div>
-
-            <% if (!selectedUserKeys || selectedUserKeys.length === 0) { %>
-              <div class="empty-state small">
-                <p>
-                  Tidak ada key yang tercatat untuk user ini
-                  (kemungkinan semua sudah dihapus atau belum pernah order).
-                </p>
-              </div>
-            <% } else { %>
-              <p class="card-description" style="margin-bottom:8px;">
-                Total keys milik user ini:
-                <strong><%= selectedUserKeys.length %></strong>
-              </p>
-
-              <div class="table-wrapper key-admin-table-wrapper">
-                <table class="table table-compact key-table-activity">
-                  <thead>
-                    <tr>
-                      <th>Token</th>
-                      <th>Tier / Type</th>
-                      <th>Created / Expires</th>
-                      <th>Status</th>
-                      <th class="key-col-actions">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <% selectedUserKeys.forEach(function(k) { %>
-                      <tr id="discord-<%= encodeURIComponent(selectedUser.discordId) %>-token-<%= encodeURIComponent(k.token || k.key) %>">
-                        <!-- TOKEN -->
-                        <td class="key-cell-token">
-                          <span class="key-token mono"><%= k.token || k.key %></span>
-                          <div class="table-sub-text">
-                            <%= k.provider || k.source || (k.free ? 'Free' : 'Paid') %>
-                          </div>
-                        </td>
-
-                        <!-- TIER / TYPE -->
-                        <td class="table-main-text">
-                          <div>
-                            <strong>
-                              <%= (k.tier || k.type || (k.free ? 'Free' : 'Paid')) %>
-                            </strong>
-                          </div>
-                          <div class="table-sub-text">
-                            <% if (k.free) { %>
-                              Free key
-                            <% } else { %>
-                              Paid key
-                            <% } %>
-                          </div>
-                        </td>
-
-                        <!-- CREATED / EXPIRES (INLINE FORM) -->
-                        <td>
-                          <form
-                            action="/admin/discord/update-key"
-                            method="POST"
-                            class="admin-key-inline-form"
-                            autocomplete="off"
-                          >
-                            <input type="hidden" name="discordId" value="<%= selectedUser.discordId %>" />
-                            <input type="hidden" name="token" value="<%= k.token || k.key %>" />
-
-                            <!-- CREATED AT (ABSOLUTE) -->
-                            <div class="admin-key-field">
-                              <div class="table-sub-text">createdAt (ISO / timestamp)</div>
-                              <input
-                                type="text"
-                                name="createdAt"
-                                class="key-input"
-                                value="<%= k.createdAt || '' %>"
-                                placeholder="ISO or timestamp"
-                                autocomplete="off"
-                                style="margin-top:4px; max-width:260px;"
-                              />
-                              <div class="table-sub-text">
-                                <%= k.createdAtLabel || '-' %>
-                              </div>
-                            </div>
-
-                            <!-- EXPIRES TTL (RELATIVE, HH:MM:SS) -->
-                            <div class="admin-key-field" style="margin-top:8px;">
-                              <div class="table-sub-text">
-                                time left (HH:MM:SS)
-                              </div>
-                              <input
-                                type="text"
-                                name="expiresAt"
-                                class="key-input admin-ttl-input"
-                                value="<%=
-                                  (k.status === 'Active' &&
-                                   k.timeLeftLabel &&
-                                   k.timeLeftLabel !== 'Expired')
-                                    ? k.timeLeftLabel
-                                    : ''
-                                %>"
-                                placeholder="HH:MM:SS (isi untuk set TTL baru)"
-                                autocomplete="off"
-                                style="margin-top:4px; max-width:160px;"
-                              />
-                              <div class="table-sub-text">
-                                Current: <%= k.timeLeftLabel || '-' %>
-                              </div>
-                            </div>
-
-                            <!-- EXPIRES LABEL (ABSOLUTE WITA / WIB) -->
-                            <div class="admin-key-field" style="margin-top:8px;">
-                              <div class="table-sub-text">expiresAt (WITA / WIB)</div>
-                              <div class="table-sub-text">
-                                <%= k.expiresAtLabel || '-' %>
-                              </div>
-                            </div>
-
-                            <div style="margin-top:10px;">
-                              <button
-                                type="submit"
-                                class="key-btn key-btn-xs key-btn-primary"
-                              >
-                                Save
-                              </button>
-                            </div>
-                          </form>
-                        </td>
-
-                        <!-- STATUS + LIVE COUNTDOWN -->
-                        <td>
-                          <%
-                            var statusLabel = k.status || 'Active';
-                            var statusClass =
-                              statusLabel === 'Active'
-                                ? 'status-pill status-pill--active'
-                                : statusLabel === 'Expired'
-                                ? 'status-pill status-pill--expired'
-                                : 'status-pill status-pill--pending';
-                          %>
-                          <span
-                            class="<%= statusClass %>"
-                            data-status-pill="1"
-                            data-token="<%= k.token || k.key %>"
-                          >
-                            <span class="status-pill-dot"></span>
-                            <span class="status-pill-text"><%= statusLabel %></span>
-                          </span>
-                          <div
-                            class="table-sub-text time-left-container"
-                            style="margin-top:4px;"
-                            data-token="<%= k.token || k.key %>"
-                            data-expires-ms="<%= k.expiresAtMs || '' %>"
-                          >
-                            Time left:
-                            <span class="time-left-text">
-                              <%= k.timeLeftLabel || '-' %>
-                            </span>
-                          </div>
-                        </td>
-
-                        <!-- ACTIONS -->
-                        <td class="key-cell-actions">
-                          <!-- RENEW -->
-                          <form
-                            action="/admin/discord/renew-key"
-                            method="POST"
-                            class="admin-inline-form"
-                            style="margin-bottom:6px;"
-                            onsubmit="return confirm('Renew key ini (extend expiry)?');"
-                          >
-                            <input type="hidden" name="discordId" value="<%= selectedUser.discordId %>" />
-                            <input type="hidden" name="token" value="<%= k.token || k.key %>" />
-                            <button
-                              type="submit"
-                              class="key-btn key-btn-xs key-btn-ghost"
-                            >
-                              Renew
-                            </button>
-                          </form>
-
-                          <!-- DELETE -->
-                          <form
-                            action="/admin/discord/delete-key"
-                            method="POST"
-                            class="admin-inline-form"
-                            onsubmit="return confirm('Delete key ini dari akun user?');"
-                          >
-                            <input type="hidden" name="discordId" value="<%= selectedUser.discordId %>" />
-                            <input type="hidden" name="token" value="<%= k.token || k.key %>" />
-                            <button
-                              type="submit"
-                              class="key-btn key-btn-xs key-btn-outline"
-                            >
-                              Delete
-                            </button>
-                          </form>
-                        </td>
-                      </tr>
-                    <% }); %>
-                  </tbody>
-                </table>
-              </div>
-            <% } %>
           <% } %>
         </section>
       </main>
@@ -758,5 +790,7 @@
       });
     })();
   </script>
+  <!-- Proteksi dasar: blokir klik kanan + beberapa shortcut DevTools -->
+  <script src="/js/protect-devtools.js"></script>
 </body>
 </html>
