@@ -287,21 +287,58 @@
 
         <% if (keys.length > 0) { %>
           <% keys.forEach(function(k) {
-              var keyLabel    = k.key || k.token || '';
-              var providerRaw = k.provider || k.providerLabel || k.source || 'ExHub';
-              var providerLbl = providerRaw;
+              var keyLabel = k.key || k.token || '';
+              
+              // --- Provider & Type Normalization ---
+              var providerRaw = k.provider || k.providerLabel || k.source || '';
+              var typeRaw     = k.type || k.keyType || '';
+              var typeLower   = (typeRaw || '').toString().toLowerCase();
+              var providerLbl = providerRaw || '';
 
-              // Normalisasi Provider tampilan
-              if (providerRaw.toLowerCase() === 'workink' || providerRaw.toLowerCase() === 'work.ink') {
-                providerLbl = 'Work.ink';
-              } else if (providerRaw.toLowerCase().indexOf('linkvertise') !== -1) {
-                providerLbl = 'Linkvertise';
+              var isPaidKey = false;
+
+              // Jika bukan free provider tapi punya type, gunakan type sebagai provider
+              if (!providerLbl && (typeLower === 'month' || typeLower === 'lifetime')) {
+                providerLbl = (typeLower === 'month') ? 'PAID_MONTH' : 'PAID_LIFETIME';
               }
 
-              var statusLabel = (k.status || 'Active');
+              var provLower = providerLbl.toLowerCase();
+
+              // Normalisasi label provider
+              if (provLower === 'workink' || provLower === 'work.ink') {
+                providerLbl = 'Work.ink';
+              } else if (provLower.indexOf('linkvertise') !== -1) {
+                providerLbl = 'Linkvertise';
+              } else if (provLower.indexOf('paid_month') !== -1 || typeLower === 'month') {
+                providerLbl = 'PAID MONTH';
+                isPaidKey = true;
+              } else if (provLower.indexOf('paid_life') !== -1 || typeLower === 'lifetime') {
+                providerLbl = 'PAID LIFETIME';
+                isPaidKey = true;
+              }
+
+              // --- Status & Tier ---
+              var statusLabel = k.status;
+              var hasValidFlag = (typeof k.valid === 'boolean');
+              var isValid      = hasValidFlag ? !!k.valid : true;
+              var isExpired    = (typeof k.expired === 'boolean') ? k.expired : false;
+
+              if (!statusLabel) {
+                if (isExpired) {
+                  statusLabel = 'Expired';
+                } else if (hasValidFlag) {
+                  statusLabel = isValid ? 'Active' : 'Pending';
+                } else {
+                  statusLabel = 'Active';
+                }
+              }
               var statusLower = statusLabel.toLowerCase();
-              var tierLabel   = (k.tier || 'Free');
-              var tierLower   = tierLabel.toLowerCase();
+
+              var tierLabel = k.tier;
+              if (!tierLabel) {
+                tierLabel = isPaidKey ? 'Paid' : 'Free';
+              }
+              var tierLower = tierLabel.toLowerCase();
 
               // expireTs untuk countdown realtime
               var expireTs = null;
@@ -315,8 +352,14 @@
               }
 
               var expireAttr = expireTs ? String(expireTs) : '';
-              var isFreeKey  = (tierLower === 'free') ||
-                               (providerLbl === 'Work.ink' || providerLbl === 'Linkvertise');
+
+              // Free key: hanya yang tier free + provider free
+              var isFreeKey  =
+                (!isPaidKey) && (
+                  tierLower === 'free' ||
+                  providerLbl === 'Work.ink' ||
+                  providerLbl === 'Linkvertise'
+                );
           %>
             <div
               class="dash-keys-row"
@@ -324,8 +367,11 @@
               data-key="<%= keyLabel %>"
               data-provider="<%= providerLbl %>"
               data-status="<%= statusLabel %>"
+              data-status-base="<%= statusLabel %>"
               data-tier="<%= tierLabel %>"
               data-free="<%= isFreeKey ? '1' : '0' %>"
+              data-paid="<%= isPaidKey ? '1' : '0' %>"
+              data-has-valid="<%= hasValidFlag ? '1' : '0' %>"
               <% if (expireAttr) { %> data-expire-ts="<%= expireAttr %>" <% } %>
             >
               <div class="dash-key-id">
@@ -362,10 +408,11 @@
                 <button
                   type="button"
                   class="btn-subtle btn-icon btn-danger-soft"
-                  title="Delete key"
+                  title="<%= isFreeKey ? 'Delete key' : 'Paid keys cannot be deleted here' %>"
                   data-action="delete-key"
                   data-token="<%= keyLabel %>"
                   data-free="<%= isFreeKey ? '1' : '0' %>"
+                  <%= isFreeKey ? '' : 'disabled aria-disabled="true"' %>
                 >
                   🗑
                 </button>
@@ -435,7 +482,7 @@
         activeCount++;
       }
 
-      // Premium / Paid: bukan "free" murni
+      // Premium / Paid: bukan "free"
       if (tier && tier.indexOf('free') === -1) {
         premiumCount++;
       }
@@ -482,29 +529,32 @@
       var expireTs = parseInt(expireStr, 10);
       if (!expireTs || !isFinite(expireTs)) return;
 
-      var timeLabel = row.querySelector('.dash-key-time-label');
+      var timeLabel   = row.querySelector('.dash-key-time-label');
       var statusBadge = row.querySelector('.dash-key-status-badge');
+      var hasValid    = row.getAttribute('data-has-valid') === '1'; // paid DB valid/expired
+      var diff        = expireTs - now;
 
-      var diff = expireTs - now;
       if (timeLabel) {
         timeLabel.textContent = formatRemaining(diff);
       }
 
-      if (diff <= 0) {
-        // mark expired di DOM
-        row.setAttribute('data-status', 'Expired');
-        if (statusBadge) {
-          statusBadge.textContent = 'Expired';
-          statusBadge.classList.remove('dash-key-status-active');
-          statusBadge.classList.add('dash-key-status-expired');
-        }
-      } else {
-        // masih active
-        row.setAttribute('data-status', 'Active');
-        if (statusBadge) {
-          statusBadge.textContent = 'Active';
-          statusBadge.classList.remove('dash-key-status-expired');
-          statusBadge.classList.add('dash-key-status-active');
+      // Untuk key yang TIDAK punya flag valid/expired (free),
+      // kita update status otomatis Active/Expired.
+      if (!hasValid) {
+        if (diff <= 0) {
+          row.setAttribute('data-status', 'Expired');
+          if (statusBadge) {
+            statusBadge.textContent = 'Expired';
+            statusBadge.classList.remove('dash-key-status-active');
+            statusBadge.classList.add('dash-key-status-expired');
+          }
+        } else {
+          row.setAttribute('data-status', 'Active');
+          if (statusBadge) {
+            statusBadge.textContent = 'Active';
+            statusBadge.classList.remove('dash-key-status-expired');
+            statusBadge.classList.add('dash-key-status-active');
+          }
         }
       }
     });
@@ -514,10 +564,16 @@
   }
 
   // =========================
-  // Delete key (free key → /api/freekey/delete/:key)
+  // Delete key
   // =========================
   async function deleteKey(row, token, isFree) {
     if (!token) return;
+
+    // Paid key tidak boleh dihapus via dashboard
+    if (!isFree) {
+      alert('Paid keys tidak dapat dihapus dari dashboard. Hubungi admin jika perlu diblokir.');
+      return;
+    }
 
     var ok = window.confirm('Delete this key? This action cannot be undone.');
     if (!ok) return;
@@ -533,10 +589,6 @@
       if (isFree) {
         // Free key: pakai API free key
         url = '/api/freekey/delete/' + encodeURIComponent(token);
-      } else {
-        // Paid / lain-lain – siapkan endpoint terpisah jika dibutuhkan
-        url = '/api/keys/delete';
-        options.body = JSON.stringify({ key: token });
       }
 
       var res = await fetch(url, options);
@@ -544,7 +596,7 @@
       try {
         json = await res.json();
       } catch (e) {
-        // boleh diabaikan
+        // ignore
       }
 
       if (!res.ok || (json && json.ok === false)) {
@@ -593,6 +645,8 @@
       }
 
       if (action === 'delete-key') {
+        // kalau button disabled, jangan apa-apa (paid key)
+        if (btn.disabled) return;
         var isFree = btn.getAttribute('data-free') === '1';
         deleteKey(row, token, isFree);
       }
