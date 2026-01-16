@@ -331,6 +331,17 @@ module.exports = function mountDiscordOAuth(app) {
     process.env.LINKVERTISE_ADS_URL ||
     "https://link-target.net/2995260/uaE3u7P8CG5D";
 
+  // OWNER_IDS sama pola dengan index.js bot (multi owner)
+  const RAW_OWNER_IDS =
+    process.env.OWNER_IDS ||
+    process.env.OWNER_ID ||
+    "";
+  const OWNER_IDS = RAW_OWNER_IDS.split(/[,\s]+/).filter(Boolean);
+
+  function isOwnerId(id) {
+    return OWNER_IDS.includes(String(id));
+  }
+
   if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
     console.warn(
       "[serverv2] DISCORD_CLIENT_ID atau DISCORD_CLIENT_SECRET belum diset. " +
@@ -348,7 +359,10 @@ module.exports = function mountDiscordOAuth(app) {
   // MIDDLEWARE: res.locals.user (untuk header EJS, dll)
   // =========================
   app.use((req, res, next) => {
-    res.locals.user = (req.session && req.session.discordUser) || null;
+    const user = (req.session && req.session.discordUser) || null;
+    res.locals.user = user;
+    res.locals.isOwner = user ? isOwnerId(user.id) : false;
+    res.locals.ownerIds = OWNER_IDS;
     next();
   });
 
@@ -360,7 +374,7 @@ module.exports = function mountDiscordOAuth(app) {
     const params = new URLSearchParams({
       client_id: DISCORD_CLIENT_ID,
       response_type: "code",
-      scope: "identify email guilds",
+      scope: "identify guilds email",
       redirect_uri: DISCORD_REDIRECT_URI,
       state,
       prompt: "consent",
@@ -372,6 +386,17 @@ module.exports = function mountDiscordOAuth(app) {
   function requireAuth(req, res, next) {
     if (!req.session || !req.session.discordUser) {
       return res.redirect("/login-required");
+    }
+    next();
+  }
+
+  // Helper kalau nanti butuh route khusus OWNER (integrasi kontrol bot)
+  function requireOwner(req, res, next) {
+    if (!req.session || !req.session.discordUser) {
+      return res.redirect("/login-required");
+    }
+    if (!isOwnerId(req.session.discordUser.id)) {
+      return res.status(403).send("Forbidden: Owner only");
     }
     next();
   }
@@ -837,6 +862,14 @@ module.exports = function mountDiscordOAuth(app) {
     }
   });
 
+  // --------------------------------------------------
+  // API kecil untuk BOT / frontend:
+  // GET /api/discord/owners → list owner IDs
+  // --------------------------------------------------
+  app.get("/api/discord/owners", (req, res) => {
+    res.json({ ownerIds: OWNER_IDS });
+  });
+
   // =========================
   // ROUTES – DISCORD OAUTH2
   // =========================
@@ -944,6 +977,8 @@ module.exports = function mountDiscordOAuth(app) {
         // tidak fatal
       }
 
+      const isOwner = isOwnerId(user.id);
+
       // Banner + data lain disimpan di session
       req.session.discordUser = {
         id: user.id,
@@ -954,6 +989,7 @@ module.exports = function mountDiscordOAuth(app) {
         email: user.email,
         guildCount,
         banner: user.banner || null,
+        isOwner,
       };
 
       // Simpan snapshot profil Discord ke KV supaya tetap ada meskipun user Sign Out
@@ -969,6 +1005,7 @@ module.exports = function mountDiscordOAuth(app) {
             email: user.email || null,
             guildCount,
             lastLoginAt: nowMs(),
+            isOwner,
           });
         } catch (e) {
           console.warn("[serverv2] gagal simpan profil discord ke KV:", e);
