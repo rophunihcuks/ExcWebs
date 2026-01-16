@@ -5,7 +5,7 @@
 const crypto = require("crypto");
 
 // ---------------------------------------------------------
-// Helper: base API ExHub (sama pola dengan index.js bot / server.js)
+// Helper: base API ExHub (saat ini tidak lagi dipakai user-info HTTP)
 // ---------------------------------------------------------
 function resolveExHubApiBase() {
   const SITE_BASE =
@@ -244,8 +244,6 @@ async function getFreeKeysForUserPersistent(userId) {
 
 // ---------------------------------------------------------
 // Konfigurasi Paid Key (Premium Keys) via KV
-//  - Record per token: exhub:paidkey:token:<KEY>
-//  - Index per user:   exhub:paidkey:user:<discordId> -> [KEY, ...]
 // ---------------------------------------------------------
 
 const PAID_KEY_PREFIX = "EXHUBPAID";
@@ -278,15 +276,6 @@ async function getPaidKeyRecord(token) {
   return normalizePaidKeyRecord(rec);
 }
 
-/**
- * Simpan record PaidKey:
- *  - token
- *  - expiresAfter
- *  - type: 'month' | 'lifetime'
- *  - valid: false (belum redeem) / true (sudah redeem)
- *  - deleted: soft delete
- *  - ownerDiscordId: pemilik (supaya bisa muncul di dashboard akun yang sama)
- */
 async function setPaidKeyRecord(payload) {
   if (!payload || !payload.token) return null;
 
@@ -296,7 +285,6 @@ async function setPaidKeyRecord(payload) {
     ? String(payload.ownerDiscordId)
     : null;
 
-  // baca record lama kalau ada (untuk preserve createdAt / expiresAfter kalau tidak dikirim)
   const existingRaw = await kvGetJson(paidTokenKey(token));
   const existing = existingRaw || null;
   const previousOwnerId =
@@ -334,7 +322,7 @@ async function setPaidKeyRecord(payload) {
 
   const newOwnerId = rec.ownerDiscordId;
 
-  // hapus token dari index owner lama jika pindah
+  // Hapus dari index owner lama jika pindah
   if (previousOwnerId && previousOwnerId !== newOwnerId) {
     const oldIdxKey = paidUserIndexKey(previousOwnerId);
     let oldIdx = await kvGetJson(oldIdxKey);
@@ -344,7 +332,7 @@ async function setPaidKeyRecord(payload) {
     }
   }
 
-  // tambahkan ke index owner baru
+  // Tambahkan ke index owner baru
   if (newOwnerId) {
     const newIdxKey = paidUserIndexKey(newOwnerId);
     let newIdx = await kvGetJson(newIdxKey);
@@ -358,9 +346,6 @@ async function setPaidKeyRecord(payload) {
   return normalizePaidKeyRecord(rec);
 }
 
-/**
- * Ambil semua PaidKey milik Discord ID tertentu (untuk dashboard & /api/bot/user-info).
- */
 async function getPaidKeysForUserPersistent(discordId) {
   if (!hasFreeKeyKV) return [];
 
@@ -474,6 +459,7 @@ module.exports = function mountDiscordOAuth(app) {
     process.env.DISCORD_REDIRECT_URI ||
     "http://localhost:3000/auth/discord/callback";
 
+  // EXHUB_API_BASE: saat ini tidak kita pakai untuk user-info HTTP
   const EXHUB_API_BASE = resolveExHubApiBase();
 
   const WORKINK_ADS_URL =
@@ -550,7 +536,7 @@ module.exports = function mountDiscordOAuth(app) {
     next();
   }
 
-  // Ambil data key user untuk Dashboard (web)
+  // Ambil data key user untuk Dashboard (web) → langsung dari KV
   async function getUserKeys(discordUser) {
     const result = {
       total: 0,
@@ -564,43 +550,14 @@ module.exports = function mountDiscordOAuth(app) {
 
     let bannedFlag = false;
 
-    // OPTIONAL: Ambil status banned dari API utama (jika ada)
+    // Optional: kalau nanti mau simpan banned di profile KV, bisa baca di sini.
     try {
-      const url = new URL("bot/user-info", EXHUB_API_BASE);
-      const payload = {
-        discordId: discordUser.id,
-        discordTag: discordUser.username,
-      };
-
-      const res = await fetch(url.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const text = await res.text();
-      if (!res.ok) {
-        console.warn(
-          "[serverv2] /api/bot/user-info gagal:",
-          res.status,
-          text.slice(0, 200)
-        );
-      } else {
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch {
-          data = null;
-        }
-        if (data && typeof data.banned === "boolean") {
-          bannedFlag = data.banned;
-        }
-      }
+      const profile = await kvGetJson(discordUserProfileKey(discordUser.id));
+      if (profile && profile.banned === true) bannedFlag = true;
     } catch (err) {
-      console.error("[serverv2] getUserKeys API error:", err);
+      console.warn("[serverv2] read discord profile for banned error:", err);
     }
 
-    // --- Paid keys dari KV PaidKey (integrasi langsung dengan bot) ---
     let paidKeys = [];
     try {
       paidKeys = await getPaidKeysForUserPersistent(discordUser.id);
@@ -608,7 +565,6 @@ module.exports = function mountDiscordOAuth(app) {
       console.error("[serverv2] getPaidKeysForUserPersistent error:", err);
     }
 
-    // --- Free keys dari KV FreeKey ---
     let freeKeys = [];
     try {
       freeKeys = await getFreeKeysForUserPersistent(discordUser.id);
@@ -944,22 +900,6 @@ module.exports = function mountDiscordOAuth(app) {
 
   // --------------------------------------------------
   // API: POST /api/paidkey/createOrUpdate
-  //
-  // Dipanggil dari Discord Bot:
-  // {
-  //   "valid": false,
-  //   "deleted": false,
-  //   "expired": false,
-  //   "ownerDiscordId": "1234567890",   // <- wajib diisi agar ter-link ke akun dashboard
-  //   "info": {
-  //     "token": "EXHUBPAID-XXXX",
-  //     "createdAt": 1736930000000,
-  //     "byIp": "discord-bot",
-  //     "expiresAfter": 1739522000000,
-  //     "type": "month" | "lifetime",
-  //     "ownerDiscordId": "1234567890"  // optional mirror
-  //   }
-  // }
   // --------------------------------------------------
   app.post("/api/paidkey/createOrUpdate", async (req, res) => {
     if (!hasFreeKeyKV) {
@@ -1068,12 +1008,15 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // --------------------------------------------------
-  // API: POST /api/bot/user-info
-  //  Dipakai oleh:
-  //   - Dashboard (opsional untuk banned / profil)
-  //   - Discord Bot (/mykey, /checkmykey, fetchUserPaidKeys)
+  // API BARU: POST /api/paidfree/user-info
+  //
+  // INI yang akan dipanggil bot (EXHUB_USERINFO_URL).
+  // Wajib mengembalikan:
+  //  - paidKeys: array
+  //  - freeKeys: array
+  //  - keys: gabungan (array)  <-- inilah yang dicek `Array.isArray(data.keys)`
 // --------------------------------------------------
-  app.post("/api/bot/user-info", async (req, res) => {
+  app.post("/api/paidfree/user-info", async (req, res) => {
     const body = req.body || {};
     const rawId =
       body.discordId ||
@@ -1103,18 +1046,23 @@ module.exports = function mountDiscordOAuth(app) {
     try {
       paidKeysRaw = await getPaidKeysForUserPersistent(discordId);
     } catch (err) {
-      console.error("[serverv2] getPaidKeysForUserPersistent (user-info) error:", err);
+      console.error(
+        "[serverv2] getPaidKeysForUserPersistent (/api/paidfree/user-info) error:",
+        err
+      );
     }
 
     try {
       freeKeysRaw = await getFreeKeysForUserPersistent(discordId);
     } catch (err) {
-      console.error("[serverv2] getFreeKeysForUserPersistent (user-info) error:", err);
+      console.error(
+        "[serverv2] getFreeKeysForUserPersistent (/api/paidfree/user-info) error:",
+        err
+      );
     }
 
     const now = nowMs();
 
-    // Normalisasi paid keys → bentuk flat yang mudah dibaca bot
     const paidKeys = paidKeysRaw
       .map((k) => {
         if (!k) return null;
@@ -1125,7 +1073,7 @@ module.exports = function mountDiscordOAuth(app) {
         const typeRaw = (k.type || "").toString().toLowerCase();
         const type =
           typeRaw === "month" || typeRaw === "lifetime" ? typeRaw : typeRaw || "paid";
-        const tier = k.tier || (type === "month" || type === "lifetime" ? "Paid" : "Paid");
+        const tier = k.tier || "Paid";
 
         const statusStr = (k.status || "").toLowerCase();
         const valid =
@@ -1167,7 +1115,6 @@ module.exports = function mountDiscordOAuth(app) {
       })
       .filter(Boolean);
 
-    // Normalisasi free keys → diberi type/tier "free" & provider work.ink / linkvertise
     const freeKeys = freeKeysRaw.map((fk) => {
       const token = fk.token;
       const statusStr = (fk.status || "").toLowerCase();
@@ -1233,7 +1180,7 @@ module.exports = function mountDiscordOAuth(app) {
       profile: profile || null,
       paidKeys,
       freeKeys,
-      keys: allKeys,
+      keys: allKeys, // <-- INI yang dicek bot dengan Array.isArray(data.keys)
       summary,
     });
   });
@@ -1407,6 +1354,6 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   console.log(
-    "[serverv2] Discord OAuth + Dashboard + GetFreeKey + FreeKey API + PaidKey API + Bot User-Info API routes mounted."
+    "[serverv2] Discord OAuth + Dashboard + GetFreeKey + FreeKey API + PaidKey API + PaidFree User-Info API routes mounted."
   );
 };
