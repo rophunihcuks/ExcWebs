@@ -354,6 +354,13 @@
       white-space: nowrap;
     }
 
+    /* Header actions (Monitor Keys + Logout) */
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     /* Breakpoints */
     @media (min-width: 640px) {
       .admin-search .search-row {
@@ -424,9 +431,14 @@
       </span>
       <span class="logo-text" id="logo-text">ExHub — Admin Dashboard</span>
     </div>
-    <form method="post" action="/admin/logout" class="header-action">
-      <button class="btn-ghost btn-small" type="submit">Logout</button>
-    </form>
+
+    <!-- ACTIONS: Monitor Keys + Logout -->
+    <div class="header-actions">
+      <a href="/admin/keys" class="btn-ghost btn-small">Monitor Keys</a>
+      <form method="post" action="/admin/logout" class="header-action">
+        <button class="btn-ghost btn-small" type="submit">Logout</button>
+      </form>
+    </div>
   </div>
 </header>
 
