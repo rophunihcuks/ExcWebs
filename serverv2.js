@@ -551,6 +551,16 @@ function makeDiscordAvatarUrl(profile) {
   return null;
 }
 
+function makeDiscordBannerUrl(profile) {
+  if (!profile) return null;
+  const id = profile.id || profile.discordId;
+  const banner = profile.banner;
+  if (id && banner) {
+    return `https://cdn.discordapp.com/banners/${id}/${banner}.png?size=512`;
+  }
+  return null;
+}
+
 // Normalisasi Paid key untuk admin-dashboarddiscord
 function normalizePaidKeyForAdmin(k, fallbackDiscordId) {
   if (!k) return null;
@@ -747,6 +757,7 @@ module.exports = function mountDiscordOAuth(app) {
     process.env.LINKVERTISE_ADS_URL ||
     "https://link-target.net/2995260/uaE3u7P8CG5D";
 
+  // OWNER IDs masih boleh diisi untuk "badge" saja, TIDAK untuk login admin
   const RAW_OWNER_IDS =
     process.env.OWNER_IDS ||
     process.env.OWNER_ID ||
@@ -771,18 +782,35 @@ module.exports = function mountDiscordOAuth(app) {
   }
 
   // =========================
-  // MIDDLEWARE: res.locals.user
+  // HELPER SESSION ADMIN
+  // =========================
+  // Admin login klasik via ADMIN_USER / ADMIN_PASS di server.js
+  // diasumsikan set salah satu flag berikut di session:
+  //   req.session.isAdmin === true
+  //   atau req.session.adminLoggedIn === true
+  function isAdminSession(req) {
+    return !!(
+      req.session &&
+      (req.session.isAdmin === true || req.session.adminLoggedIn === true)
+    );
+  }
+
+  // =========================
+  // MIDDLEWARE: res.locals.user & res.locals.isAdmin
   // =========================
   app.use((req, res, next) => {
     const user = (req.session && req.session.discordUser) || null;
     res.locals.user = user;
+    // isOwner hanya untuk badge visual, tidak dipakai proteksi route
     res.locals.isOwner = user ? isOwnerId(user.id) : false;
     res.locals.ownerIds = OWNER_IDS;
+    // flag admin dari login ADMIN_USER / ADMIN_PASS (server.js)
+    res.locals.isAdmin = isAdminSession(req);
     next();
   });
 
   // =========================
-  // HELPER
+  // HELPER AUTH
   // =========================
 
   function makeDiscordAuthUrl(state) {
@@ -798,6 +826,7 @@ module.exports = function mountDiscordOAuth(app) {
     return `https://discord.com/oauth2/authorize?${params.toString()}`;
   }
 
+  // Wajib login Discord untuk fitur user (dashboard, get key, dll)
   function requireAuth(req, res, next) {
     if (!req.session || !req.session.discordUser) {
       return res.redirect("/login-required");
@@ -805,12 +834,10 @@ module.exports = function mountDiscordOAuth(app) {
     next();
   }
 
-  function requireOwner(req, res, next) {
-    if (!req.session || !req.session.discordUser) {
-      return res.redirect("/login-required");
-    }
-    if (!isOwnerId(req.session.discordUser.id)) {
-      return res.status(403).send("Forbidden: Owner only");
+  // Wajib session admin (ADMIN_USER / ADMIN_PASS) untuk fitur admin
+  function requireAdmin(req, res, next) {
+    if (!isAdminSession(req)) {
+      return res.status(403).send("Forbidden: Admin only");
     }
     next();
   }
@@ -898,7 +925,7 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // =========================
-  // ROUTES – DASHBOARD & PAGE WAJIB LOGIN
+  // ROUTES – DASHBOARD & PAGE WAJIB LOGIN (USER DISCORD)
   // =========================
 
   app.get("/dashboard", requireAuth, async (req, res) => {
@@ -1287,7 +1314,7 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // --------------------------------------------------
-  // API BARU: POST /api/paidfree/user-info
+  // API: POST /api/paidfree/user-info
   //
   // INI yang akan dipanggil bot (EXHUB_USERINFO_URL).
   // --------------------------------------------------
@@ -1462,15 +1489,17 @@ module.exports = function mountDiscordOAuth(app) {
 
   // --------------------------------------------------
   // API kecil: GET /api/discord/owners
-  // --------------------------------------------------
+  // (hanya info, tidak dipakai untuk login admin)
+// --------------------------------------------------
   app.get("/api/discord/owners", (req, res) => {
     res.json({ ownerIds: OWNER_IDS });
   });
 
   // =========================
   // ROUTES – ADMIN DISCORD DASHBOARD & MANAGEMENT
-  // =========================
-  app.get("/admin/discord", requireOwner, async (req, res) => {
+  // Proteksi pakai requireAdmin (session ADMIN_USER / ADMIN_PASS)
+// =========================
+  app.get("/admin/discord", requireAdmin, async (req, res) => {
     const query = (req.query.q || "").trim();
     const filter = req.query.filter || "all";
     const selectedUserParam = req.query.user
@@ -1574,6 +1603,8 @@ module.exports = function mountDiscordOAuth(app) {
         const discriminator = profile.discriminator || "0000";
         const tag = `${username}#${discriminator}`;
         const avatarUrl = makeDiscordAvatarUrl(profile);
+        const bannerUrl = makeDiscordBannerUrl(profile);
+        const email = profile.email || null;
 
         perUserData.push({
           discordId,
@@ -1582,6 +1613,8 @@ module.exports = function mountDiscordOAuth(app) {
           discriminator,
           tag,
           avatarUrl,
+          bannerUrl,
+          email,
           guildCount: profile.guildCount || 0,
           banned,
           lastLoginAtMs,
@@ -1681,6 +1714,8 @@ module.exports = function mountDiscordOAuth(app) {
           discriminator: data.discriminator,
           tag: data.tag,
           avatarUrl: data.avatarUrl,
+          bannerUrl: data.bannerUrl,
+          email: data.email,
           guildCount: data.guildCount,
           banned: data.banned,
           lastLoginAtWITA: data.lastLoginAtWITA,
@@ -1710,7 +1745,7 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // Ban user
-  app.post("/admin/discord/ban-user", requireOwner, async (req, res) => {
+  app.post("/admin/discord/ban-user", requireAdmin, async (req, res) => {
     const discordId = (req.body.discordId || "").trim();
     if (!discordId) {
       return res.redirect("/admin/discord");
@@ -1726,7 +1761,7 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // Unban user
-  app.post("/admin/discord/unban-user", requireOwner, async (req, res) => {
+  app.post("/admin/discord/unban-user", requireAdmin, async (req, res) => {
     const discordId = (req.body.discordId || "").trim();
     if (!discordId) {
       return res.redirect("/admin/discord");
@@ -1744,7 +1779,7 @@ module.exports = function mountDiscordOAuth(app) {
   // Delete semua key user
   app.post(
     "/admin/discord/delete-user-keys",
-    requireOwner,
+    requireAdmin,
     async (req, res) => {
       const discordId = (req.body.discordId || "").trim();
       if (!discordId) {
@@ -1810,7 +1845,7 @@ module.exports = function mountDiscordOAuth(app) {
   );
 
   // Update 1 key (createdAt + time left TTL)
-  app.post("/admin/discord/update-key", requireOwner, async (req, res) => {
+  app.post("/admin/discord/update-key", requireAdmin, async (req, res) => {
     const discordId = (req.body.discordId || "").trim();
     const token = (req.body.token || "").trim();
     const createdAtRaw = req.body.createdAt;
@@ -1884,7 +1919,7 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // Renew 1 key (extend expiry)
-  app.post("/admin/discord/renew-key", requireOwner, async (req, res) => {
+  app.post("/admin/discord/renew-key", requireAdmin, async (req, res) => {
     const discordId = (req.body.discordId || "").trim();
     const token = (req.body.token || "").trim();
 
@@ -1939,7 +1974,7 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // Delete 1 key
-  app.post("/admin/discord/delete-key", requireOwner, async (req, res) => {
+  app.post("/admin/discord/delete-key", requireAdmin, async (req, res) => {
     const discordId = (req.body.discordId || "").trim();
     const token = (req.body.token || "").trim();
 
@@ -2083,7 +2118,7 @@ module.exports = function mountDiscordOAuth(app) {
         // tidak fatal
       }
 
-      const isOwner = isOwnerId(user.id);
+      const isOwner = isOwnerId(user.id); // hanya untuk badge, bukan login admin
 
       req.session.discordUser = {
         id: user.id,
@@ -2138,6 +2173,6 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   console.log(
-    "[serverv2] Discord OAuth + Dashboard + GetFreeKey + FreeKey API + PaidKey API + PaidFree User-Info API + Admin Discord Dashboard routes mounted."
+    "[serverv2] Discord OAuth + Dashboard + GetFreeKey + FreeKey API + PaidKey API + PaidFree User-Info API + Admin Discord Dashboard routes mounted (admin via session)."
   );
 };
