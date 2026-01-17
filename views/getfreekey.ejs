@@ -6,6 +6,35 @@
   <title><%= typeof title !== 'undefined' && title ? title : 'ExHub — Get Free Key' %></title>
   <link rel="icon" type="image/png" href="/img/ExLogo2.png" />
   <link rel="stylesheet" href="/css/mainv2.css" />
+
+  <!-- Tambahan styling kecil khusus halaman ini -->
+  <style>
+    .getkey-banned-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(248, 113, 113, 0.5);
+      background: rgba(248, 113, 113, 0.14);
+      color: #fecaca;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .getkey-banned-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #f97373;
+    }
+    .btn-disabled,
+    .btn[disabled],
+    .btn-getkey-main[disabled] {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+  </style>
 </head>
 <body class="page-dark">
 
@@ -61,6 +90,15 @@
       //  VARIABEL DEFENSIF
       // =========================
 
+      // Flag banned dari server
+      var isBannedAccount = (typeof isBannedAccount !== 'undefined' && isBannedAccount) ? true : false;
+
+      // Config UI (optional) dari serverv2.js
+      var uiConfig      = (typeof freeKeyUiConfig !== 'undefined' && freeKeyUiConfig) ? freeKeyUiConfig : null;
+      var uiGlobal      = uiConfig && uiConfig.global      ? uiConfig.global      : {};
+      var uiWorkink     = uiConfig && uiConfig.workink     ? uiConfig.workink     : {};
+      var uiLinkvertise = uiConfig && uiConfig.linkvertise ? uiConfig.linkvertise : {};
+
       var providerId = (typeof adsProvider !== 'undefined' && adsProvider)
         ? String(adsProvider).toLowerCase()
         : 'workink';
@@ -70,6 +108,8 @@
       var providerLogo = (providerId === 'linkvertise')
         ? '/img/linkvertise.png'
         : '/img/workink.jpg';
+
+      var providerUi = (providerId === 'linkvertise') ? uiLinkvertise : uiWorkink;
 
       var totalSlots = (typeof maxKeys !== 'undefined' && maxKeys != null) ? maxKeys : 5;
       var keysList   = Array.isArray(keys) ? keys : [];
@@ -86,9 +126,11 @@
       // - setelah Generate/Renew berhasil, server set used=true → UI balik 0/1
       var adsProgressUiDone = adsDoneFromServer && !adsUsedFromServer;
 
-      // Flag dari server (tidak ada fallback di client)
-      var canGenerateBtn = (typeof allowGenerate !== 'undefined') ? !!allowGenerate : false;
-      var canRenewGlobal = (typeof canRenew !== 'undefined') ? !!canRenew : false;
+      // Flag dari server (tidak ada fallback di client), lalu di-override banned
+      var baseCanGenerate = (typeof allowGenerate !== 'undefined') ? !!allowGenerate : false;
+      var baseCanRenew    = (typeof canRenew !== 'undefined') ? !!canRenew : false;
+      var canGenerateBtn  = baseCanGenerate && !isBannedAccount;
+      var canRenewGlobal  = baseCanRenew    && !isBannedAccount;
 
       var currentId   = (typeof currentUserId !== 'undefined') ? currentUserId : '';
 
@@ -113,14 +155,31 @@
           Complete <span>Verification</span>
         </h1>
         <p class="getkey-subtitle">
-          Complete a quick verification to get your ExHub key and start using our scripts.
+          <% if (uiGlobal && uiGlobal.dashboardCaption) { %>
+            <%= uiGlobal.dashboardCaption %>
+          <% } else { %>
+            Complete a quick verification to get your ExHub key and start using our scripts.
+          <% } %>
         </p>
 
         <ul class="getkey-bullets">
           <li>Secure & HWID-aware key system.</li>
           <li>Instant delivery right after verification.</li>
-          <li><%= validityHours %>h validity, easy renew when expired.</li>
+          <li>
+            <% if (uiGlobal && uiGlobal.validityLabel) { %>
+              <%= uiGlobal.validityLabel %>
+            <% } else { %>
+              <%= validityHours %>h validity, easy renew when expired.
+            <% } %>
+          </li>
         </ul>
+
+        <% if (isBannedAccount) { %>
+          <div class="getkey-banned-pill" style="margin-top:12px;">
+            <span class="getkey-banned-dot"></span>
+            <span>Banned account — keys may be restricted.</span>
+          </div>
+        <% } %>
       </div>
 
       <div class="getkey-hero-right">
@@ -136,7 +195,11 @@
             <div class="getkey-provider-text">
               <p class="provider-name"><%= providerName %></p>
               <p class="provider-caption">
-                Complete a short task and get rewarded. Takes less than 2 minutes.
+                <% if (providerUi && providerUi.dashboardDescription) { %>
+                  <%= providerUi.dashboardDescription %>
+                <% } else { %>
+                  Complete a short task and get rewarded. Takes less than 2 minutes.
+                <% } %>
               </p>
             </div>
           </div>
@@ -152,25 +215,55 @@
           </div>
 
           <div class="getkey-provider-actions">
-            <a
-              href="<%= adsUrlSafe %>"
-              class="btn-getkey-main"
-            >
-              START
-            </a>
-
-            <% if (!adsDoneFromServer) { %>
+            <% if (isBannedAccount) { %>
+              <!-- BANNED: START non-aktif -->
+              <button
+                type="button"
+                class="btn-getkey-main btn-disabled"
+                disabled
+                aria-disabled="true"
+              >
+                START
+              </button>
               <p class="getkey-helper-text">
-                Complete the verification first to unlock <strong>Generate</strong> or <strong>Renew</strong>.
-              </p>
-            <% } else if (adsUsedFromServer) { %>
-              <p class="getkey-helper-text">
-                This verification has been used. Run <strong>START</strong> again for a new action.
+                This Discord account is <strong>banned</strong>. Free key verification is disabled for this user.
               </p>
             <% } else { %>
-              <p class="getkey-helper-text">
-                Checkpoint unlocked — you can <strong>Generate</strong> or <strong>Renew</strong> one key.
-              </p>
+              <% var startDisabled = adsDoneFromServer && !adsUsedFromServer; %>
+
+              <% if (startDisabled) { %>
+                <!-- Checkpoint aktif & belum dipakai → START dikunci -->
+                <button
+                  type="button"
+                  class="btn-getkey-main btn-disabled"
+                  disabled
+                  aria-disabled="true"
+                >
+                  START
+                </button>
+              <% } else { %>
+                <!-- Boleh buka ads -->
+                <a
+                  href="<%= adsUrlSafe %>"
+                  class="btn-getkey-main"
+                >
+                  START
+                </a>
+              <% } %>
+
+              <% if (!adsDoneFromServer) { %>
+                <p class="getkey-helper-text">
+                  Complete the verification first to unlock <strong>Generate</strong> or <strong>Renew</strong>.
+                </p>
+              <% } else if (adsUsedFromServer) { %>
+                <p class="getkey-helper-text">
+                  This verification has been used. Run <strong>START</strong> again for a new action.
+                </p>
+              <% } else { %>
+                <p class="getkey-helper-text">
+                  Checkpoint unlocked — you can <strong>Generate</strong> or <strong>Renew</strong> one key.
+                </p>
+              <% } %>
             <% } %>
           </div>
         </div>
@@ -186,6 +279,12 @@
             Your keys (<%= usedSlots %> / <%= totalSlots %>)
           </p>
         </div>
+        <% if (isBannedAccount) { %>
+          <div class="getkey-banned-pill">
+            <span class="getkey-banned-dot"></span>
+            <span>Banned account — keys may be restricted.</span>
+          </div>
+        <% } %>
       </header>
 
       <% if (errMsg) { %>
@@ -226,6 +325,11 @@
 
                // Kalau status Expired tapi server belum mengizinkan Renew (checkpoint belum unlocked)
                if (isExpired && !canRenewGlobal) {
+                 btnDisabledStr = 'disabled="disabled" aria-disabled="true"';
+               }
+
+               // Kalau akun banned → semua tombol Renew harus disabled
+               if (isBannedAccount && btnMode === 'renew') {
                  btnDisabledStr = 'disabled="disabled" aria-disabled="true"';
                }
 
@@ -311,7 +415,11 @@
             Generate Free Key
           </button>
 
-          <% if (!canGenerateBtn) { %>
+          <% if (isBannedAccount) { %>
+            <p class="getkey-cta-caption" style="margin-top:4px;font-size:0.8rem;color:#fecaca;max-width:360px;">
+              This Discord account is banned. New free keys and renew actions are blocked.
+            </p>
+          <% } else if (!canGenerateBtn) { %>
             <p class="getkey-cta-caption" style="margin-top:4px;font-size:0.8rem;color:#9ca3c0;max-width:340px;">
               Complete <strong>START</strong> verification first. After redirecting back here,
               this button or <strong>Renew</strong> will be unlocked for one action.
@@ -483,10 +591,12 @@
             btn.textContent = 'Renew';
           }
 
-          // Enable / disable berdasarkan checkpoint server
+          // Enable / disable berdasarkan checkpoint server (bukan untuk banned, sudah di-EJS)
           if (CAN_RENEW_GLOBAL) {
-            btn.disabled = false;
-            btn.removeAttribute('aria-disabled');
+            if (!btn.hasAttribute('data-force-disabled')) {
+              btn.disabled = false;
+              btn.removeAttribute('aria-disabled');
+            }
           } else {
             btn.disabled = true;
             btn.setAttribute('aria-disabled', 'true');
@@ -543,14 +653,20 @@
 })();
 </script>
 
-<!-- SCRIPT 4: Anti-spam "Open" dari Linkvertise/Work.Ink (mirip konsep generatekey) -->
+<!-- SCRIPT 4: Anti-spam "Open" dari Linkvertise/Work.Ink -->
 <script>
 (function () {
+  var IS_BANNED          = <%= isBannedAccount ? 'true' : 'false' %>;
+  if (IS_BANNED) {
+    // Untuk akun banned, anti-spam tidak perlu jalan (semua aksi sudah diblokir server & UI)
+    return;
+  }
+
   var PROVIDER_ID        = '<%= providerId %>';
   var ADS_DONE_SERVER    = <%= adsDoneFromServer ? 'true' : 'false' %>;
   var ADS_USED_SERVER    = <%= adsUsedFromServer ? 'true' : 'false' %>;
   var STORAGE_KEY        = 'exhub_freekey_checkpoint_' + PROVIDER_ID;
-  var ANTI_SPAM_WINDOWMS = 5 * 60 * 1000; // 5 menit: tahan spam Open dalam window ini
+  var ANTI_SPAM_WINDOWMS = 5 * 60 * 1000; // 5 menit
 
   function getCheckpointUsedAt() {
     try {
@@ -589,10 +705,6 @@
   }
 
   // Anti-spam:
-  // Jika server bilang checkpoint DONE & belum used,
-  // tapi secara lokal kita baru saja memakai checkpoint ini (<5 menit),
-  // artinya kemungkinan besar ini hanyalah spam "Open" dari ads
-  // → UI dihaluskan: treat as already consumed (disable Generate & Renew, progress tetap 0/1).
   var usedAt = getCheckpointUsedAt();
   var now    = Date.now();
   var recentlyConsumed = usedAt && (now - usedAt < ANTI_SPAM_WINDOWMS);
