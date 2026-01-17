@@ -175,8 +175,236 @@
         </form>
       </div>
 
-      <!-- ================= BODY (USER OVERVIEW + DETAIL) ================= -->
+      <%
+        // =========================
+        // GLOBAL CONFIG UNTUK /getfreekey
+        // =========================
+        var freeCfg   = (typeof freeKeyUiConfig !== 'undefined' && freeKeyUiConfig) ? freeKeyUiConfig : {};
+        var fkGlobal  = freeCfg.global      || {};
+        var fkWorkink = freeCfg.workink     || {};
+        var fkLinkv   = freeCfg.linkvertise || {};
+
+        var freeKeyTtlHoursVal =
+          (typeof freeKeyTtlHours !== 'undefined' && freeKeyTtlHours != null)
+            ? freeKeyTtlHours
+            : 3;
+
+        var paidPlan = (typeof paidPlanConfig !== 'undefined' && paidPlanConfig) ? paidPlanConfig : {};
+        var paidMonthDaysVal =
+          (typeof paidPlan.monthDays !== 'undefined' && paidPlan.monthDays != null)
+            ? paidPlan.monthDays
+            : 30;
+        var paidLifetimeDaysVal =
+          (typeof paidPlan.lifetimeDays !== 'undefined' && paidPlan.lifetimeDays != null)
+            ? paidPlan.lifetimeDays
+            : 365;
+
+        var defaultHeroSubtitle =
+          fkGlobal.dashboardCaption ||
+          'Complete a quick verification to get your ExHub key and start using our scripts.';
+
+        var defaultBullet1 =
+          fkGlobal.bullet1 ||
+          'Secure & HWID-aware key system.';
+
+        var defaultBullet2 =
+          fkGlobal.bullet2 ||
+          'Instant delivery right after verification.';
+
+        var defaultValidityLabel =
+          fkGlobal.validityLabel ||
+          fkGlobal.bullet3 ||
+          (freeKeyTtlHoursVal + 'h validity, easy renew when expired.');
+
+        var defaultWorkinkDesc =
+          fkWorkink.dashboardDescription ||
+          'Complete a short task and get rewarded. Takes less than 2 minutes.';
+
+        var defaultLinkvDesc =
+          fkLinkv.dashboardDescription ||
+          'Complete a short task and get rewarded. Takes less than 2 minutes.';
+      %>
+
+      <!-- ================= BODY (GLOBAL CONFIG + USER OVERVIEW + DETAIL) ================= -->
       <main class="key-admin-main">
+
+        <!-- ========== GLOBAL CONFIG: GET FREE KEY UI & TTL ========== -->
+        <section class="card admin-card-global-config" style="margin-bottom:18px;">
+          <div class="card-header">
+            <div class="card-header-main">
+              <h2 class="section-title small">Get Free Key UI &amp; TTL Settings</h2>
+              <p class="card-description">
+                Atur teks yang tampil di halaman
+                <code>/getfreekey?ads=workink</code> dan
+                <code>/getfreekey?ads=linkvertise</code>, serta durasi default
+                <strong>Free Key</strong> (jam) dan
+                <strong>Paid Key</strong> (Month / Lifetime, dalam hari).
+                Nilai ini dibaca oleh <code>serverv2.js</code> untuk render UI dan
+                logika <em>expiresAfter</em> / renew.
+              </p>
+            </div>
+          </div>
+
+          <form
+            action="/admin/discord/save-global-key-config"
+            method="POST"
+            class="admin-global-form"
+            autocomplete="off"
+          >
+            <div
+              class="admin-global-grid"
+              style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;"
+            >
+              <!-- KOLUM 1: HERO + BULLET -->
+              <div>
+                <h3 class="section-title xsmall">Get Free Key – Hero &amp; Bullets</h3>
+
+                <div class="admin-key-field" style="margin-top:8px;">
+                  <div class="table-sub-text">
+                    Hero subtitle (kalimat di bawah "Complete Verification")
+                  </div>
+                  <textarea
+                    name="heroSubtext"
+                    class="key-input key-input-sm"
+                    rows="2"
+                    style="resize:vertical;"
+                  ><%= defaultHeroSubtitle %></textarea>
+                </div>
+
+                <div class="admin-key-field" style="margin-top:8px;">
+                  <div class="table-sub-text">Bullet 1</div>
+                  <input
+                    type="text"
+                    name="bullet1"
+                    class="key-input key-input-sm"
+                    value="<%= defaultBullet1 %>"
+                    autocomplete="off"
+                  />
+                </div>
+
+                <div class="admin-key-field" style="margin-top:8px;">
+                  <div class="table-sub-text">Bullet 2</div>
+                  <input
+                    type="text"
+                    name="bullet2"
+                    class="key-input key-input-sm"
+                    value="<%= defaultBullet2 %>"
+                    autocomplete="off"
+                  />
+                </div>
+
+                <div class="admin-key-field" style="margin-top:8px;">
+                  <div class="table-sub-text">
+                    Bullet 3 / validity label
+                    <span class="table-sub-text" style="display:block;">
+                      Contoh: "<%= freeKeyTtlHoursVal %>h validity, easy renew when expired."
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    name="validityLabel"
+                    class="key-input key-input-sm"
+                    value="<%= defaultValidityLabel %>"
+                    autocomplete="off"
+                  />
+                </div>
+              </div>
+
+              <!-- KOLUM 2: PROVIDER DESC + TTL -->
+              <div>
+                <h3 class="section-title xsmall">Provider Descriptions &amp; TTL</h3>
+
+                <div class="admin-key-field" style="margin-top:8px;">
+                  <div class="table-sub-text">
+                    Work.ink description (card kanan /getfreekey?ads=workink)
+                  </div>
+                  <textarea
+                    name="workinkDescription"
+                    class="key-input key-input-sm"
+                    rows="2"
+                    style="resize:vertical;"
+                  ><%= defaultWorkinkDesc %></textarea>
+                </div>
+
+                <div class="admin-key-field" style="margin-top:8px;">
+                  <div class="table-sub-text">
+                    Linkvertise description (card kanan /getfreekey?ads=linkvertise)
+                  </div>
+                  <textarea
+                    name="linkvertiseDescription"
+                    class="key-input key-input-sm"
+                    rows="2"
+                    style="resize:vertical;"
+                  ><%= defaultLinkvDesc %></textarea>
+                </div>
+
+                <div class="admin-key-field" style="margin-top:10px;">
+                  <div class="table-sub-text">
+                    Free Key TTL (jam)
+                  </div>
+                  <input
+                    type="number"
+                    name="freeKeyTtlHours"
+                    class="key-input key-input-sm"
+                    min="1"
+                    max="72"
+                    value="<%= freeKeyTtlHoursVal %>"
+                    autocomplete="off"
+                  />
+                  <div class="table-sub-text">
+                    Dipakai saat generate free key (expiresAfter) dan label validitas di UI.
+                  </div>
+                </div>
+
+                <div class="admin-key-field" style="margin-top:10px;">
+                  <div class="table-sub-text">
+                    Paid Key – Month (hari)
+                  </div>
+                  <input
+                    type="number"
+                    name="paidMonthDays"
+                    class="key-input key-input-sm"
+                    min="1"
+                    max="730"
+                    value="<%= paidMonthDaysVal %>"
+                    autocomplete="off"
+                  />
+                  <div class="table-sub-text">
+                    Dipakai sebagai durasi ketika admin / bot melakukan renew key bertipe <code>month</code>.
+                  </div>
+                </div>
+
+                <div class="admin-key-field" style="margin-top:10px;">
+                  <div class="table-sub-text">
+                    Paid Key – Lifetime (hari)
+                  </div>
+                  <input
+                    type="number"
+                    name="paidLifetimeDays"
+                    class="key-input key-input-sm"
+                    min="1"
+                    max="3650"
+                    value="<%= paidLifetimeDaysVal %>"
+                    autocomplete="off"
+                  />
+                  <div class="table-sub-text">
+                    Dipakai sebagai durasi ketika admin / bot melakukan renew key bertipe <code>lifetime</code>.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="admin-key-inline-actions" style="margin-top:16px;">
+              <button
+                type="submit"
+                class="key-btn key-btn-xs key-btn-primary"
+              >
+                Save UI &amp; TTL Settings
+              </button>
+            </div>
+          </form>
+        </section>
+
         <!-- ========== DISCORD USERS OVERVIEW (FULL WIDTH) ========== -->
         <section class="card admin-card-user-list">
           <div class="card-header">
@@ -287,21 +515,18 @@
                       <td class="table-main-text">
                         <%
                           var banned = !!row.banned;
-                          var totalKeys = row.totalKeys || 0;
-                          var activeKeys = row.activeKeys || 0;
+                          var totalKeysRow = row.totalKeys || 0;
+                          var activeKeysRow = row.activeKeys || 0;
                           var statusKeyLabel;
                           var statusKeyClass;
 
-                          if (totalKeys === 0) {
-                            // Tidak punya key sama sekali
+                          if (totalKeysRow === 0) {
                             statusKeyLabel = 'No Keys';
                             statusKeyClass = 'status-pill status-pill--pending';
-                          } else if (activeKeys > 0) {
-                            // Ada minimal 1 key yang masih aktif
+                          } else if (activeKeysRow > 0) {
                             statusKeyLabel = 'Active';
                             statusKeyClass = 'status-pill status-pill--active';
                           } else {
-                            // Punya key, tapi semua sudah expired / deleted
                             statusKeyLabel = 'Expired';
                             statusKeyClass = 'status-pill status-pill--expired';
                           }
