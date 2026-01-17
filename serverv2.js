@@ -198,7 +198,11 @@ function normalizeFreeKeyTtlHours(uiCfg) {
     uiCfg.freeKeyTtlHours ??
     (uiCfg.global && uiCfg.global.ttlHours);
 
-  if (raw == null && uiCfg.global && typeof uiCfg.global.freeKeyTtlHours === "number") {
+  if (
+    raw == null &&
+    uiCfg.global &&
+    typeof uiCfg.global.freeKeyTtlHours === "number"
+  ) {
     raw = uiCfg.global.freeKeyTtlHours;
   }
 
@@ -412,7 +416,10 @@ async function deleteFreeKeyPersistent(token, userIdCheck) {
         await kvSetJson(idxKey, filtered);
       }
     } catch (err) {
-      console.error("[serverv2] deleteFreeKeyPersistent index cleanup error:", err);
+      console.error(
+        "[serverv2] deleteFreeKeyPersistent index cleanup error:",
+        err
+      );
     }
   }
 
@@ -1193,6 +1200,9 @@ module.exports = function mountDiscordOAuth(app) {
       keyAction: "/getfreekey/generate",
       renewAction: "/getfreekey/extend",
       errorMessage,
+      // penting: dikirim dengan nama yang dipakai EJS
+      isBannedAccount: bannedFlag,
+      // tetap kirim juga 'banned' kalau nanti dibutuhkan template lain
       banned: bannedFlag,
       freeKeyUiConfig,
       freeKeyTtlHours,
@@ -1580,7 +1590,9 @@ module.exports = function mountDiscordOAuth(app) {
         const provider = k.provider || "exhub-paid";
         const typeRaw = (k.type || "").toString().toLowerCase();
         const type =
-          typeRaw === "month" || typeRaw === "lifetime" ? typeRaw : typeRaw || "paid";
+          typeRaw === "month" || typeRaw === "lifetime"
+            ? typeRaw
+            : typeRaw || "paid";
         const tier = k.tier || "Paid";
 
         const statusStr = (k.status || "").toLowerCase();
@@ -2155,8 +2167,7 @@ module.exports = function mountDiscordOAuth(app) {
       const now = nowMs();
       const newCreatedMs = parseDateOrTimestamp(createdAtRaw);
       const ttlMs = parseHHMMSS(expiresTTLRaw);
-      const newExpiresMs =
-        ttlMs && ttlMs > 0 ? now + ttlMs : null;
+      const newExpiresMs = ttlMs && ttlMs > 0 ? now + ttlMs : null;
 
       let paidRec = await getPaidKeyRecord(token);
       let freeRec = null;
@@ -2458,7 +2469,10 @@ module.exports = function mountDiscordOAuth(app) {
             isOwner,
           });
         } catch (e) {
-          console.warn("[serverv2] gagal simpan profil discord ke KV:", e);
+          console.warn(
+            "[serverv2] gagal simpan profil discord ke KV:",
+            e
+          );
         }
       }
 
