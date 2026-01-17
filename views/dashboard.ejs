@@ -45,6 +45,20 @@
 
 <main class="page-main">
   <div class="container dashboard-layout">
+    <% 
+      // Data dari serverv2.getUserKeys(discordUser)
+      var keys = (keyData && Array.isArray(keyData.keys)) ? keyData.keys : [];
+      var isBannedAccount = keyData && keyData.banned === true;
+      var totalKeys = (keyData && typeof keyData.total !== 'undefined')
+        ? keyData.total
+        : (keys.length || 0);
+      var activeKeys = (keyData && typeof keyData.active !== 'undefined')
+        ? keyData.active
+        : 0;
+      var premiumKeys = (keyData && typeof keyData.premium !== 'undefined')
+        ? keyData.premium
+        : 0;
+    %>
 
     <!-- HERO / WELCOME + DISCORD PROFILE -->
     <section class="dash-hero">
@@ -59,7 +73,7 @@
           <% } else if (user) { %>
             <div class="dash-hero-avatar-placeholder">
               <span>
-                <%= (user.global_name || user.username || 'U').charAt(0) %>
+                <%= (user.global_name || user.username || 'U').charAt(0).toUpperCase() %>
               </span>
             </div>
           <% } else { %>
@@ -74,13 +88,20 @@
           <h1 class="dash-welcome">
             Welcome back, <span><%= (user && (user.global_name || user.username)) || 'User' %></span>
           </h1>
-          <p class="dash-caption">Monitor and control all of your ExHub keys and account metadata.</p>
+          <p class="dash-caption">
+            Monitor and control all of your ExHub keys and account metadata.
+          </p>
 
           <div class="dash-hero-chips">
             <span class="hero-chip">Discord verified</span>
             <% if (user && typeof user.guildCount !== 'undefined') { %>
               <span class="hero-chip hero-chip-soft" data-guild-count="<%= user.guildCount %>">
                 Servers joined: <strong><%= user.guildCount %></strong>
+              </span>
+            <% } %>
+            <% if (isBannedAccount) { %>
+              <span class="hero-chip hero-chip-danger">
+                Banned account — keys may be restricted
               </span>
             <% } %>
           </div>
@@ -98,12 +119,9 @@
               <span>Display Name:</span> <code><%= user.global_name || user.username %></code><br />
               <span>Discord Tag:</span> <code><%= user.username %>#<%= user.discriminator %></code><br />
               <span>Discord ID:</span> <code><%= user.id %></code><br />
-              <% 
-                var isBanned = keyData && keyData.banned === true;
-              %>
               <span>Status:</span>
-              <span class="badge <%= isBanned ? 'badge-danger' : 'badge-active' %>">
-                <%= isBanned ? 'Banned' : 'OK' %>
+              <span class="badge <%= isBannedAccount ? 'badge-danger' : 'badge-active' %>">
+                <%= isBannedAccount ? 'Banned' : 'OK' %>
               </span>
             <% } else { %>
               <span>Not logged in.</span>
@@ -148,19 +166,19 @@
       <div class="dash-stat-card">
         <p class="dash-stat-label">Total Keys</p>
         <p class="dash-stat-value" id="stat-total-keys">
-          <%= (keyData && typeof keyData.total !== 'undefined') ? keyData.total : ((keyData && keyData.keys && keyData.keys.length) || 0) %>
+          <%= totalKeys %>
         </p>
       </div>
       <div class="dash-stat-card">
         <p class="dash-stat-label">Active Keys</p>
         <p class="dash-stat-value" id="stat-active-keys">
-          <%= (keyData && typeof keyData.active !== 'undefined') ? keyData.active : 0 %>
+          <%= activeKeys %>
         </p>
       </div>
       <div class="dash-stat-card">
         <p class="dash-stat-label">Premium / Paid Keys</p>
         <p class="dash-stat-value" id="stat-premium-keys">
-          <%= (keyData && typeof keyData.premium !== 'undefined') ? keyData.premium : 0 %>
+          <%= premiumKeys %>
         </p>
       </div>
     </section>
@@ -170,15 +188,29 @@
       <div class="dash-getfree-header">
         <div>
           <h2 class="dash-section-title">Get a Free Key</h2>
-          <p class="dash-section-caption">
-            Choose your preferred provider, complete a quick verification, and your free key will appear automatically.
-          </p>
+          <% if (isBannedAccount) { %>
+            <p class="dash-section-caption dash-section-caption--warning">
+              This Discord account is currently <strong>banned</strong>.
+              Existing keys remain visible below, but new <strong>free keys</strong>
+              cannot be requested from this dashboard. Please contact the admin if you think
+              this is a mistake.
+            </p>
+          <% } else { %>
+            <p class="dash-section-caption">
+              Choose your preferred provider, complete a quick verification, and your free key
+              will appear automatically.
+            </p>
+          <% } %>
         </div>
       </div>
 
       <div class="dash-getfree-grid">
         <!-- Work.ink -->
-        <a href="/getfreekey?ads=workink" class="getfree-card">
+        <a
+          href="<%= isBannedAccount ? '#' : '/get-keyfree?ads=workink' %>"
+          class="getfree-card <%= isBannedAccount ? 'getfree-card--disabled' : '' %>"
+          <%= isBannedAccount ? 'aria-disabled="true" tabindex="-1" style="opacity:0.5;pointer-events:none;cursor:not-allowed;"' : '' %>
+        >
           <div class="getfree-card-main">
             <div class="getfree-icon">
               <span class="getfree-key-icon">🔑</span>
@@ -202,7 +234,11 @@
         </a>
 
         <!-- Linkvertise -->
-        <a href="/getfreekey?ads=linkvertise" class="getfree-card">
+        <a
+          href="<%= isBannedAccount ? '#' : '/get-keyfree?ads=linkvertise' %>"
+          class="getfree-card <%= isBannedAccount ? 'getfree-card--disabled' : '' %>"
+          <%= isBannedAccount ? 'aria-disabled="true" tabindex="-1" style="opacity:0.5;pointer-events:none;cursor:not-allowed;"' : '' %>
+        >
           <div class="getfree-card-main">
             <div class="getfree-icon">
               <span class="getfree-key-icon">🔑</span>
@@ -260,6 +296,11 @@
           <p class="dash-section-caption">
             All keys linked to this Discord account, including free keys (Work.ink / Linkvertise) and paid keys.
           </p>
+          <% if (isBannedAccount) { %>
+            <p class="dash-section-caption dash-section-caption--warning">
+              As this account is banned, keys may be rejected by the bot even if they appear active here.
+            </p>
+          <% } %>
         </div>
         <div class="dash-keys-controls">
           <input
@@ -281,10 +322,6 @@
           <div>Actions</div>
         </div>
 
-        <%
-          var keys = (keyData && Array.isArray(keyData.keys)) ? keyData.keys : [];
-        %>
-
         <% if (keys.length > 0) { %>
           <% keys.forEach(function(k) {
               var keyLabel = k.key || k.token || '';
@@ -297,23 +334,23 @@
 
               var isPaidKey = false;
 
-              // Jika bukan free provider tapi punya type, gunakan type sebagai provider
               if (!providerLbl && (typeLower === 'month' || typeLower === 'lifetime')) {
                 providerLbl = (typeLower === 'month') ? 'PAID_MONTH' : 'PAID_LIFETIME';
               }
 
               var provLower = providerLbl.toLowerCase();
 
-              // Normalisasi label provider
               if (provLower === 'workink' || provLower === 'work.ink') {
                 providerLbl = 'Work.ink';
               } else if (provLower.indexOf('linkvertise') !== -1) {
                 providerLbl = 'Linkvertise';
-              } else if (provLower.indexOf('paid_month') !== -1 || typeLower === 'month') {
+              } else if (provLower.indexOf('paid month') !== -1 || provLower.indexOf('paid_month') !== -1 || typeLower === 'month') {
                 providerLbl = 'PAID MONTH';
                 isPaidKey = true;
-              } else if (provLower.indexOf('paid_life') !== -1 || typeLower === 'lifetime') {
+              } else if (provLower.indexOf('paid lifetime') !== -1 || provLower.indexOf('paid_life') !== -1 || typeLower === 'lifetime') {
                 providerLbl = 'PAID LIFETIME';
+                isPaidKey = true;
+              } else if (provLower.indexOf('exhub paid') !== -1) {
                 isPaidKey = true;
               }
 
@@ -465,7 +502,7 @@
   }
 
   // =========================
-  // Recompute stats (Total / Active / Premium)
+  // Recompute stats (Total / Active / Premium) berdasar DOM
   // =========================
   function recomputeStats() {
     var rows = document.querySelectorAll('.dash-keys-row[data-role="key-row"]');
@@ -474,6 +511,9 @@
     var premiumCount = 0;
 
     rows.forEach(function (row) {
+      if (row.style.display === 'none') {
+        // masih dihitung ke stats global; kalau mau "per filter" bisa diubah
+      }
       total++;
       var status = (row.getAttribute('data-status') || '').toLowerCase();
       var tier   = (row.getAttribute('data-tier') || '').toLowerCase();
@@ -505,17 +545,16 @@
     if (ms <= 0) return 'Expired';
 
     var totalSec = Math.floor(ms / 1000);
-    var d = Math.floor(totalSec / 86400);
-    var h = Math.floor((totalSec % 86400) / 3600);
+    var h = Math.floor(totalSec / 3600);
     var m = Math.floor((totalSec % 3600) / 60);
     var s = totalSec % 60;
 
-    var parts = [];
-    if (d > 0) parts.push(d + 'd');
-    if (h > 0 || d > 0) parts.push(h + 'h');
-    if (m > 0 || h > 0 || d > 0) parts.push(m + 'm');
-    parts.push(s + 's');
-    return parts.join(' ');
+    var pad = function (n) {
+      return n < 10 ? '0' + n : String(n);
+    };
+
+    // Format HH:MM:SS supaya konsisten dengan backend
+    return pad(h) + ':' + pad(m) + ':' + pad(s);
   }
 
   function tickCountdown() {
@@ -579,17 +618,12 @@
     if (!ok) return;
 
     try {
-      var url;
+      var url = '/api/freekey/delete/' + encodeURIComponent(token);
       var options = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
       };
-
-      if (isFree) {
-        // Free key: pakai API free key
-        url = '/api/freekey/delete/' + encodeURIComponent(token);
-      }
 
       var res = await fetch(url, options);
       var json = null;
