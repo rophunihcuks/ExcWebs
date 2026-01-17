@@ -7,7 +7,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="color-scheme" content="dark" />
   <link rel="icon" type="image/png" href="/img/ExLogo2.png" />
-  <!-- CSS PANEL V2 -->
+  <!-- GANTI KE CSS V2 -->
   <link rel="stylesheet" href="/css/mainv2.css" />
 </head>
 <body class="page-dark admin-page admin-page--discord">
@@ -175,166 +175,8 @@
         </form>
       </div>
 
-      <!-- ================= BODY (CONFIG + USER OVERVIEW + DETAIL) ================= -->
+      <!-- ================= BODY (USER OVERVIEW + DETAIL) ================= -->
       <main class="key-admin-main">
-
-        <% 
-          // ================================
-          // GLOBAL CONFIG (UI TEXT + TTL)
-          // Dibaca dari serverv2.js:
-          //  - freeKeyUiConfig
-          //  - keyPlanConfig
-          // ================================
-          var uiCfg   = (typeof freeKeyUiConfig !== 'undefined' && freeKeyUiConfig) || {};
-          var globCfg = uiCfg.global || {};
-          var wiCfg   = uiCfg.workink || {};
-          var lvCfg   = uiCfg.linkvertise || {};
-
-          var cfgDashboardCaption = globCfg.dashboardCaption || '';
-          var cfgValidityLabel    = globCfg.validityLabel || '';
-
-          var cfgWorkinkDesc = wiCfg.dashboardDescription || wiCfg.description || '';
-          var cfgLvDesc      = lvCfg.dashboardDescription || lvCfg.description || '';
-
-          var planCfg        = (typeof keyPlanConfig !== 'undefined' && keyPlanConfig) || {};
-          var freePlan       = planCfg.freeKey || planCfg.free || {};
-          var paidMonthPlan  = planCfg.paidMonth || {};
-          var paidLifePlan   = planCfg.paidLifetime || {};
-
-          var cfgFreeTtlHours     = (typeof freePlan.ttlHours !== 'undefined') ? freePlan.ttlHours : 3;
-          var cfgPaidMonthDays    = (typeof paidMonthPlan.ttlDays !== 'undefined') ? paidMonthPlan.ttlDays : 30;
-          var cfgPaidLifetimeDays = (typeof paidLifePlan.ttlDays !== 'undefined') ? paidLifePlan.ttlDays : 365;
-        %>
-
-        <!-- ========== GLOBAL KEY / UI CONFIG ========== -->
-        <section class="card admin-card-config" style="margin-bottom:18px;">
-          <div class="card-header">
-            <div class="card-header-main">
-              <h2 class="section-title small">Key System &amp; UI Config</h2>
-              <p class="card-description">
-                Atur teks UI <strong>"Complete Verification"</strong> dan masa berlaku
-                (<code>expiresAfter</code>) untuk <strong>free key</strong> (Work.ink / Linkvertise)
-                serta <strong>paid key</strong> (Month / Lifetime). Perubahan disimpan di
-                serverv2 + database dan bisa dipakai juga oleh bot Discord.
-              </p>
-            </div>
-          </div>
-
-          <form
-            action="/admin/discord/update-key-config"
-            method="POST"
-            class="admin-key-global-form"
-            autocomplete="off"
-          >
-            <div class="admin-key-global-grid">
-              <!-- KIRI: UI TEXT -->
-              <div class="admin-key-global-column">
-                <h3 class="section-title xsmall">UI Text — Get Free Key</h3>
-
-                <div class="admin-key-field">
-                  <div class="table-sub-text">Global caption (Dashboard / Get Free Key)</div>
-                  <input
-                    type="text"
-                    name="globalDashboardCaption"
-                    class="key-input"
-                    value="<%= cfgDashboardCaption %>"
-                    placeholder="Complete a quick verification to get your ExHub key and start using our scripts."
-                  />
-                </div>
-
-                <div class="admin-key-field">
-                  <div class="table-sub-text">
-                    Validity label (mis. <code>3h validity, easy renew when expired.</code>)
-                  </div>
-                  <input
-                    type="text"
-                    name="globalValidityLabel"
-                    class="key-input"
-                    value="<%= cfgValidityLabel %>"
-                    placeholder="3h validity, easy renew when expired."
-                  />
-                </div>
-
-                <div class="admin-key-field">
-                  <div class="table-sub-text">Work.ink description (card text)</div>
-                  <textarea
-                    name="workinkDescription"
-                    class="key-input"
-                    rows="2"
-                    placeholder="Complete a short task and receive your ExHub free key instantly after verification."
-                  ><%= cfgWorkinkDesc %></textarea>
-                </div>
-
-                <div class="admin-key-field">
-                  <div class="table-sub-text">Linkvertise description (card text)</div>
-                  <textarea
-                    name="linkvertiseDescription"
-                    class="key-input"
-                    rows="2"
-                    placeholder="Use the Linkvertise route for alternative offers and stable delivery."
-                  ><%= cfgLvDesc %></textarea>
-                </div>
-              </div>
-
-              <!-- KANAN: TTL / EXPIRES -->
-              <div class="admin-key-global-column">
-                <h3 class="section-title xsmall">Expires / TTL Config</h3>
-
-                <div class="admin-key-field">
-                  <div class="table-sub-text">Free key TTL (hours)</div>
-                  <input
-                    type="number"
-                    name="freeTtlHours"
-                    class="key-input"
-                    min="1"
-                    step="1"
-                    value="<%= cfgFreeTtlHours %>"
-                  />
-                  <div class="table-sub-text">
-                    Digunakan untuk Work.ink &amp; Linkvertise free key (contoh: <code>3</code> = 3 jam).
-                  </div>
-                </div>
-
-                <div class="admin-key-field">
-                  <div class="table-sub-text">Paid Month TTL (days)</div>
-                  <input
-                    type="number"
-                    name="paidMonthTtlDays"
-                    class="key-input"
-                    min="1"
-                    step="1"
-                    value="<%= cfgPaidMonthDays %>"
-                  />
-                  <div class="table-sub-text">
-                    Masa berlaku key berbayar <strong>Month</strong> dalam hari (contoh: <code>30</code> = 1 bulan).
-                  </div>
-                </div>
-
-                <div class="admin-key-field">
-                  <div class="table-sub-text">Paid Lifetime TTL (days, 0 = never expire)</div>
-                  <input
-                    type="number"
-                    name="paidLifetimeTtlDays"
-                    class="key-input"
-                    min="0"
-                    step="1"
-                    value="<%= cfgPaidLifetimeDays %>"
-                  />
-                  <div class="table-sub-text">
-                    Bisa <code>0</code> untuk benar-benar lifetime, atau angka besar (misal <code>3650</code> = 10 tahun).
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="admin-inline-actions" style="margin-top:12px;">
-              <button type="submit" class="key-btn key-btn-xs key-btn-primary">
-                Save Key Config
-              </button>
-            </div>
-          </form>
-        </section>
-
         <!-- ========== DISCORD USERS OVERVIEW (FULL WIDTH) ========== -->
         <section class="card admin-card-user-list">
           <div class="card-header">
@@ -359,15 +201,14 @@
                     <th>Paid / Free</th>
                     <th>Last Login</th>
                     <th>Last Key Expires</th>
-                    <th>STATUS KEY</th>
-                    <th>STATUS ACC DC</th>
+                    <th>Status</th>
                     <th class="key-col-actions">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   <% userStats.forEach(function(row) { %>
                     <tr
-                      class="discord-user-row <%= selectedUser && selectedUser.discordId === row.discordId ? 'key-row-highlight' : '' %> <%= row.banned ? 'discord-user-row--banned' : '' %>"
+                      class="discord-user-row <%= selectedUser && selectedUser.discordId === row.discordId ? 'key-row-highlight' : '' %>"
                       data-discord-id="<%= row.discordId %>"
                     >
                       <!-- DISCORD USER -->
@@ -441,43 +282,22 @@
                         <% } %>
                       </td>
 
-                      <!-- STATUS KEY -->
+                      <!-- STATUS -->
                       <td class="table-main-text">
                         <%
                           var banned = !!row.banned;
-                          var totalKeys = row.totalKeys || 0;
-                          var activeKeysRow = row.activeKeys || 0;
-                          var statusKeyLabel;
-                          var statusKeyClass;
-
-                          if (totalKeys === 0) {
-                            statusKeyLabel = 'No Keys';
-                            statusKeyClass = 'status-pill status-pill--pending';
-                          } else if (activeKeysRow > 0) {
-                            statusKeyLabel = 'Active';
-                            statusKeyClass = 'status-pill status-pill--active';
-                          } else {
-                            statusKeyLabel = 'Expired';
-                            statusKeyClass = 'status-pill status-pill--expired';
-                          }
+                          var hasKeys = (row.totalKeys || 0) > 0;
+                          var statusLabel = banned ? 'Banned' : (hasKeys ? 'Active' : 'No Keys');
+                          var statusClass =
+                            banned
+                              ? 'status-pill status-pill--expired'
+                              : hasKeys
+                              ? 'status-pill status-pill--active'
+                              : 'status-pill status-pill--pending';
                         %>
-                        <span class="<%= statusKeyClass %>">
+                        <span class="<%= statusClass %>">
                           <span class="status-pill-dot"></span>
-                          <span class="status-pill-text"><%= statusKeyLabel %></span>
-                        </span>
-                      </td>
-
-                      <!-- STATUS ACC DC -->
-                      <td class="table-main-text">
-                        <%
-                          var statusAccLabel = banned ? 'Banned' : 'Active';
-                          var statusAccClass = banned
-                            ? 'status-pill status-pill--expired'
-                            : 'status-pill status-pill--active';
-                        %>
-                        <span class="<%= statusAccClass %>">
-                          <span class="status-pill-dot"></span>
-                          <span class="status-pill-text"><%= statusAccLabel %></span>
+                          <span class="status-pill-text"><%= statusLabel %></span>
                         </span>
                       </td>
 
@@ -636,28 +456,28 @@
                       <div class="discord-user-summary-label">Total Keys</div>
                       <div class="discord-user-summary-value">
                         <%= selectedUserSummary && typeof selectedUserSummary.total !== 'undefined'
-                              ? selectedUserSummary.total : 0 %>
+                              ? selectedUserSummary.total : (selectedUser.totalKeys || 0) %>
                       </div>
                     </div>
                     <div class="discord-user-summary-pill">
                       <div class="discord-user-summary-label">Paid</div>
                       <div class="discord-user-summary-value">
                         <%= selectedUserSummary && typeof selectedUserSummary.paid !== 'undefined'
-                              ? selectedUserSummary.paid : 0 %>
+                              ? selectedUserSummary.paid : (selectedUser.paidKeys || 0) %>
                       </div>
                     </div>
                     <div class="discord-user-summary-pill">
                       <div class="discord-user-summary-label">Free</div>
                       <div class="discord-user-summary-value">
                         <%= selectedUserSummary && typeof selectedUserSummary.free !== 'undefined'
-                              ? selectedUserSummary.free : 0 %>
+                              ? selectedUserSummary.free : (selectedUser.freeKeys || 0) %>
                       </div>
                     </div>
                     <div class="discord-user-summary-pill">
                       <div class="discord-user-summary-label">Active</div>
                       <div class="discord-user-summary-value">
                         <%= selectedUserSummary && typeof selectedUserSummary.active !== 'undefined'
-                              ? selectedUserSummary.active : 0 %>
+                              ? selectedUserSummary.active : (selectedUser.activeKeys || 0) %>
                       </div>
                     </div>
                     <div class="discord-user-summary-pill">
@@ -722,10 +542,7 @@
                       </thead>
                       <tbody>
                         <% selectedUserKeys.forEach(function(k) { %>
-                          <tr
-                            id="discord-<%= encodeURIComponent(selectedUser.discordId) %>-token-<%= encodeURIComponent(k.token || k.key) %>"
-                            data-key-tier="<%= k.free ? 'free' : 'paid' %>"
-                          >
+                          <tr id="discord-<%= encodeURIComponent(selectedUser.discordId) %>-token-<%= encodeURIComponent(k.token || k.key) %>">
                             <!-- TOKEN -->
                             <td class="key-cell-token">
                               <div class="token-row">
@@ -789,9 +606,13 @@
                                       type="text"
                                       name="expiresAt"
                                       class="key-input key-input-sm admin-ttl-input"
-                                      inputmode="numeric"
-                                      pattern="[0-9:]*"
-                                      value="<%= (k.status === 'Active' && k.timeLeftLabel && k.timeLeftLabel !== 'Expired') ? k.timeLeftLabel : '' %>"
+                                      value="<%=
+                                        (k.status === 'Active' &&
+                                         k.timeLeftLabel &&
+                                         k.timeLeftLabel !== 'Expired')
+                                          ? k.timeLeftLabel
+                                          : ''
+                                      %>"
                                       placeholder="HH:MM:SS"
                                       autocomplete="off"
                                     />
@@ -823,23 +644,21 @@
                             <!-- STATUS + LIVE COUNTDOWN -->
                             <td class="key-cell-status">
                               <%
-                                var statusLabelDetail = k.status || 'Active';
-                                var statusClassDetail =
-                                  statusLabelDetail === 'Active'
+                                var statusLabel = k.status || 'Active';
+                                var statusClass =
+                                  statusLabel === 'Active'
                                     ? 'status-pill status-pill--active'
-                                    : statusLabelDetail === 'Expired'
-                                    ? 'status-pill status-pill--expired'
-                                    : statusLabelDetail === 'Deleted'
+                                    : statusLabel === 'Expired'
                                     ? 'status-pill status-pill--expired'
                                     : 'status-pill status-pill--pending';
                               %>
                               <span
-                                class="<%= statusClassDetail %>"
+                                class="<%= statusClass %>"
                                 data-status-pill="1"
                                 data-token="<%= k.token || k.key %>"
                               >
                                 <span class="status-pill-dot"></span>
-                                <span class="status-pill-text"><%= statusLabelDetail %></span>
+                                <span class="status-pill-text"><%= statusLabel %></span>
                               </span>
                               <div
                                 class="table-sub-text time-left-container"
@@ -971,7 +790,6 @@
       });
     })();
   </script>
-
   <!-- Proteksi dasar: blokir klik kanan + beberapa shortcut DevTools -->
   <script src="/js/protect-devtools.js"></script>
 </body>
