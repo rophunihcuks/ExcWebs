@@ -19,6 +19,30 @@ function resolveExHubApiBase() {
 }
 
 // ---------------------------------------------------------
+// Helper: Discord Redirect URI (PROD vs LOCAL)
+// ---------------------------------------------------------
+function resolveDiscordRedirectUri() {
+  // 1) Kalau DISCORD_REDIRECT_URI sudah di-set di .env → pakai itu saja
+  if (process.env.DISCORD_REDIRECT_URI) {
+    return process.env.DISCORD_REDIRECT_URI;
+  }
+
+  // 2) Kalau ada EXHUB_SITE_BASE, pakai sebagai base URL
+  const SITE_BASE =
+    process.env.EXHUB_SITE_BASE || "https://exc-webs.vercel.app";
+  const cleanBase = SITE_BASE.replace(/\/+$/, "");
+
+  // 3) Kalau NODE_ENV=production → default ke domain production
+  if (process.env.NODE_ENV === "production") {
+    // Hasil: https://exc-webs.vercel.app/auth/discord/callback
+    return `${cleanBase}/auth/discord/callback`;
+  }
+
+  // 4) Default fallback untuk lokal development
+  return "http://localhost:3000/auth/discord/callback";
+}
+
+// ---------------------------------------------------------
 // Upstash KV khusus Free Key & Paid Key & Discord Profile
 // ---------------------------------------------------------
 const KV_REST_API_URL = process.env.KV_REST_API_URL;
@@ -905,9 +929,7 @@ module.exports = function mountDiscordOAuth(app) {
   const DISCORD_CLIENT_ID =
     process.env.DISCORD_CLIENT_ID || process.env.CLIENT_ID;
   const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
-  const DISCORD_REDIRECT_URI =
-    process.env.DISCORD_REDIRECT_URI ||
-    "http://localhost:3000/auth/discord/callback";
+  const DISCORD_REDIRECT_URI = resolveDiscordRedirectUri();
 
   // EXHUB_API_BASE: saat ini tidak kita pakai untuk user-info HTTP
   const EXHUB_API_BASE = resolveExHubApiBase();
@@ -933,6 +955,12 @@ module.exports = function mountDiscordOAuth(app) {
     console.warn(
       "[serverv2] DISCORD_CLIENT_ID atau DISCORD_CLIENT_SECRET belum diset. " +
         "Fitur Discord Login tidak akan bekerja dengan benar."
+    );
+  } else {
+    console.log(
+      "[serverv2] Discord OAuth configured:",
+      "client_id=" + DISCORD_CLIENT_ID,
+      "redirect_uri=" + DISCORD_REDIRECT_URI
     );
   }
 
@@ -972,7 +1000,8 @@ module.exports = function mountDiscordOAuth(app) {
     const params = new URLSearchParams({
       client_id: DISCORD_CLIENT_ID,
       response_type: "code",
-      scope: "identify guilds email",
+      // scope match dengan: identify+email+guilds
+      scope: "identify email guilds",
       redirect_uri: DISCORD_REDIRECT_URI,
       state,
       prompt: "consent",
