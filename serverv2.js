@@ -169,12 +169,172 @@ function parseHHMMSS(value) {
 }
 
 // ---------------------------------------------------------
-// Konfigurasi Free Key (persisten via Upstash)
+// Konfigurasi Free Key & Key Plan (persisten via Upstash)
 // ---------------------------------------------------------
 
 const FREE_KEY_PREFIX = "EXHUBFREE";
-const FREE_KEY_TTL_HOURS = 3;
+const FREE_KEY_TTL_DEFAULT_HOURS = 3;
 const FREE_KEY_MAX_PER_USER = 5;
+
+const FREEKEY_UI_CONFIG_KEY = "exhub:config:freekey-ui";
+const KEY_PLAN_CONFIG_KEY = "exhub:config:keyplans";
+
+const DEFAULT_FREEKEY_UI_CONFIG = {
+  global: {
+    dashboardCaption:
+      "Complete a quick verification to get your ExHub key and start using our scripts.",
+    validityLabel: "3h validity, easy renew when expired.",
+  },
+  workink: {
+    dashboardDescription:
+      "Complete a short task and receive your ExHub free key instantly after verification.",
+  },
+  linkvertise: {
+    dashboardDescription:
+      "Use the Linkvertise route for alternative offers and stable delivery.",
+  },
+};
+
+const DEFAULT_KEYPLAN_CONFIG = {
+  freeKey: { ttlHours: FREE_KEY_TTL_DEFAULT_HOURS },
+  paidMonth: { ttlDays: 30 },
+  paidLifetime: { ttlDays: 365 },
+};
+
+// helper UI config
+async function getFreeKeyUiConfigEffective() {
+  if (!hasFreeKeyKV) return DEFAULT_FREEKEY_UI_CONFIG;
+
+  try {
+    const raw = await kvGetJson(FREEKEY_UI_CONFIG_KEY);
+    if (!raw || typeof raw !== "object") {
+      return DEFAULT_FREEKEY_UI_CONFIG;
+    }
+
+    const cfg = {
+      global: {
+        ...DEFAULT_FREEKEY_UI_CONFIG.global,
+        ...(raw.global && typeof raw.global === "object" ? raw.global : {}),
+      },
+      workink: {
+        ...DEFAULT_FREEKEY_UI_CONFIG.workink,
+        ...(raw.workink && typeof raw.workink === "object"
+          ? raw.workink
+          : {}),
+      },
+      linkvertise: {
+        ...DEFAULT_FREEKEY_UI_CONFIG.linkvertise,
+        ...(raw.linkvertise && typeof raw.linkvertise === "object"
+          ? raw.linkvertise
+          : {}),
+      },
+    };
+    return cfg;
+  } catch (err) {
+    console.error("[serverv2] getFreeKeyUiConfig error:", err);
+    return DEFAULT_FREEKEY_UI_CONFIG;
+  }
+}
+
+async function setFreeKeyUiConfig(value) {
+  if (!hasFreeKeyKV) return;
+  await kvSetJson(FREEKEY_UI_CONFIG_KEY, value);
+}
+
+// helper key plan config (TTL)
+async function getKeyPlanConfigEffective() {
+  if (!hasFreeKeyKV) return DEFAULT_KEYPLAN_CONFIG;
+
+  try {
+    const raw = await kvGetJson(KEY_PLAN_CONFIG_KEY);
+    if (!raw || typeof raw !== "object") {
+      return DEFAULT_KEYPLAN_CONFIG;
+    }
+
+    const cfg = {
+      freeKey: { ...DEFAULT_KEYPLAN_CONFIG.freeKey },
+      paidMonth: { ...DEFAULT_KEYPLAN_CONFIG.paidMonth },
+      paidLifetime: { ...DEFAULT_KEYPLAN_CONFIG.paidLifetime },
+    };
+
+    if (raw.freeKey && typeof raw.freeKey === "object") {
+      const h = Number(raw.freeKey.ttlHours);
+      if (Number.isFinite(h) && h > 0) {
+        cfg.freeKey.ttlHours = h;
+      }
+    }
+
+    if (raw.paidMonth && typeof raw.paidMonth === "object") {
+      const d = Number(raw.paidMonth.ttlDays);
+      if (Number.isFinite(d) && d > 0) {
+        cfg.paidMonth.ttlDays = d;
+      }
+    }
+
+    if (raw.paidLifetime && typeof raw.paidLifetime === "object") {
+      const d = Number(raw.paidLifetime.ttlDays);
+      // boleh 0 = lifetime (no-expire)
+      if (Number.isFinite(d) && d >= 0) {
+        cfg.paidLifetime.ttlDays = d;
+      }
+    }
+
+    return cfg;
+  } catch (err) {
+    console.error("[serverv2] getKeyPlanConfig error:", err);
+    return DEFAULT_KEYPLAN_CONFIG;
+  }
+}
+
+async function setKeyPlanConfig(value) {
+  if (!hasFreeKeyKV) return;
+  await kvSetJson(KEY_PLAN_CONFIG_KEY, value);
+}
+
+// TTL free key → ms (menggunakan config)
+async function computeFreeKeyTtlMs() {
+  const plan = await getKeyPlanConfigEffective();
+  const hours = Number(plan.freeKey && plan.freeKey.ttlHours);
+  const h =
+    Number.isFinite(hours) && hours > 0
+      ? hours
+      : FREE_KEY_TTL_DEFAULT_HOURS;
+  return h * 60 * 60 * 1000;
+}
+
+// TTL renew paid key (month / lifetime) → ms
+async function computePaidRenewDurationMs(typeRaw) {
+  const plan = await getKeyPlanConfigEffective();
+  const lower = (typeRaw || "").toLowerCase();
+
+  const dayToMs = (d) => d * 24 * 60 * 60 * 1000;
+
+  if (lower === "lifetime") {
+    const d = Number(plan.paidLifetime && plan.paidLifetime.ttlDays);
+    if (!Number.isFinite(d)) {
+      return dayToMs(DEFAULT_KEYPLAN_CONFIG.paidLifetime.ttlDays);
+    }
+    if (d === 0) {
+      // 0 = lifetime no-expire → representasikan sebagai 0 ms (nanti expiresAfter=0)
+      return 0;
+    }
+    if (d < 0) {
+      return dayToMs(DEFAULT_KEYPLAN_CONFIG.paidLifetime.ttlDays);
+    }
+    return dayToMs(d);
+  }
+
+  // default / month
+  const d = Number(plan.paidMonth && plan.paidMonth.ttlDays);
+  if (!Number.isFinite(d) || d <= 0) {
+    return dayToMs(DEFAULT_KEYPLAN_CONFIG.paidMonth.ttlDays);
+  }
+  return dayToMs(d);
+}
+
+// ---------------------------------------------------------
+// Konfigurasi Free Key tambahan
+// ---------------------------------------------------------
 
 const REQUIRE_FREEKEY_ADS_CHECKPOINT =
   String(process.env.REQUIREFREEKEY_ADS_CHECKPOINT || "1") === "1";
@@ -214,7 +374,7 @@ function generateFreeKeyToken() {
 
 async function createFreeKeyRecordPersistent({ userId, provider, ip }) {
   const createdAt = nowMs();
-  const ttlMs = FREE_KEY_TTL_HOURS * 60 * 60 * 1000;
+  const ttlMs = await computeFreeKeyTtlMs();
   const expiresAfter = createdAt + ttlMs;
 
   let token;
@@ -255,7 +415,7 @@ async function extendFreeKeyPersistent(token) {
   if (!rec) return null;
 
   const now = nowMs();
-  const ttlMs = FREE_KEY_TTL_HOURS * 60 * 60 * 1000;
+  const ttlMs = await computeFreeKeyTtlMs();
 
   rec.expiresAfter = now + ttlMs;
   rec.valid = true;
@@ -464,7 +624,7 @@ async function getPaidKeysForUserPersistent(discordId) {
     const now = nowMs();
     const expired =
       rec.expiresAfter && typeof rec.expiresAfter === "number"
-        ? now > rec.expiresAfter
+        ? now > rec.expiresAfter && rec.expiresAfter !== 0
         : false;
     const deleted = !!rec.deleted;
 
@@ -484,9 +644,10 @@ async function getPaidKeysForUserPersistent(discordId) {
     else statusLabel = "Pending";
 
     const expiresAtMs = rec.expiresAfter || null;
-    const timeLeftLabel = expiresAtMs
-      ? formatTimeLeftLabelFromMs(expiresAtMs)
-      : "-";
+    const timeLeftLabel =
+      expiresAtMs && expiresAtMs !== 0
+        ? formatTimeLeftLabelFromMs(expiresAtMs)
+        : "-";
 
     result.push({
       key: rec.token,
@@ -610,7 +771,7 @@ function normalizePaidKeyForAdmin(k, fallbackDiscordId) {
     typeof k.expired === "boolean"
       ? k.expired
       : expiresAtMs
-      ? nowMs() > expiresAtMs
+      ? nowMs() > expiresAtMs && expiresAtMs !== 0
       : false;
   const valid =
     typeof k.valid === "boolean"
@@ -627,9 +788,10 @@ function normalizePaidKeyForAdmin(k, fallbackDiscordId) {
 
   const tier = k.tier || "Paid";
   const type = k.type || tier || "paid";
-  const timeLeftLabel = expiresAtMs
-    ? formatTimeLeftLabelFromMs(expiresAtMs)
-    : "-";
+  const timeLeftLabel =
+    expiresAtMs && expiresAtMs !== 0
+      ? formatTimeLeftLabelFromMs(expiresAtMs)
+      : "-";
 
   const provider = k.provider || "ExHub Paid";
 
@@ -893,7 +1055,7 @@ module.exports = function mountDiscordOAuth(app) {
     let bannedFlag = false;
 
     try {
-      const profile = await kvGetJson(discordUserProfileKey(discordUser.id));
+      const profile = await getDiscordUserProfile(discordUser.id);
       if (profile && profile.banned === true) bannedFlag = true;
     } catch (err) {
       console.warn("[serverv2] read discord profile for banned error:", err);
@@ -966,8 +1128,13 @@ module.exports = function mountDiscordOAuth(app) {
 
   app.get("/dashboard", requireAuth, async (req, res) => {
     const discordUser = req.session.discordUser;
-    const keyData = await getUserKeys(discordUser);
-    res.render("dashboard", { keyData });
+    const [keyData, freeKeyUiConfig, keyPlanConfig] = await Promise.all([
+      getUserKeys(discordUser),
+      getFreeKeyUiConfigEffective(),
+      getKeyPlanConfigEffective(),
+    ]);
+
+    res.render("dashboard", { keyData, freeKeyUiConfig, keyPlanConfig });
   });
 
   app.get("/get-keyfree", requireAuth, (req, res) => {
@@ -1013,21 +1180,42 @@ module.exports = function mountDiscordOAuth(app) {
     const adsUrl =
       adsProvider === "linkvertise" ? LINKVERTISE_ADS_URL : WORKINK_ADS_URL;
 
-    const freeKeys = await getFreeKeysForUserPersistent(userId);
+    const [freeKeys, freeKeyUiConfig, keyPlanConfig, profile] =
+      await Promise.all([
+        getFreeKeysForUserPersistent(userId),
+        getFreeKeyUiConfigEffective(),
+        getKeyPlanConfigEffective(),
+        getDiscordUserProfile(userId),
+      ]);
+
+    const isBannedAccount = !!(profile && profile.banned === true);
+
     const maxKeys = FREE_KEY_MAX_PER_USER;
     const keys = freeKeys;
 
     const capacityOk = keys.length < maxKeys;
 
-    const allowGenerate =
+    const baseAllowGenerate =
       capacityOk &&
       (!REQUIRE_FREEKEY_ADS_CHECKPOINT || (adsProgressDone && !adsUsed));
 
-    const canRenew =
+    const baseCanRenew =
       keys.length > 0 &&
       (!REQUIRE_FREEKEY_ADS_CHECKPOINT || (adsProgressDone && !adsUsed));
 
+    const allowGenerate = baseAllowGenerate && !isBannedAccount;
+    const canRenew = baseCanRenew && !isBannedAccount;
+
     const errorMessage = req.query.error || null;
+
+    const freeTtl =
+      keyPlanConfig && keyPlanConfig.freeKey
+        ? Number(keyPlanConfig.freeKey.ttlHours)
+        : FREE_KEY_TTL_DEFAULT_HOURS;
+    const defaultKeyHours =
+      Number.isFinite(freeTtl) && freeTtl > 0
+        ? freeTtl
+        : FREE_KEY_TTL_DEFAULT_HOURS;
 
     res.render("getfreekey", {
       title: "ExHub — Get Free Key",
@@ -1036,7 +1224,7 @@ module.exports = function mountDiscordOAuth(app) {
       adsUrl,
       keys,
       maxKeys,
-      defaultKeyHours: FREE_KEY_TTL_HOURS,
+      defaultKeyHours,
       allowGenerate,
       canRenew,
       adsProgressDone,
@@ -1045,6 +1233,9 @@ module.exports = function mountDiscordOAuth(app) {
       keyAction: "/getfreekey/generate",
       renewAction: "/getfreekey/extend",
       errorMessage,
+      isBannedAccount,
+      freeKeyUiConfig,
+      keyPlanConfig,
     });
   });
 
@@ -1060,6 +1251,25 @@ module.exports = function mountDiscordOAuth(app) {
     const redirectBase = "/getfreekey?ads=" + encodeURIComponent(adsProvider);
 
     try {
+      // blokir banned
+      try {
+        const profile = await getDiscordUserProfile(userId);
+        if (profile && profile.banned === true) {
+          return res.redirect(
+            redirectBase +
+              "&error=" +
+              encodeURIComponent(
+                "This Discord account is banned. Free keys are restricted."
+              )
+          );
+        }
+      } catch (errProfile) {
+        console.warn(
+          "[serverv2] generate free key banned-check error:",
+          errProfile
+        );
+      }
+
       const existing = await getFreeKeysForUserPersistent(userId);
       if (existing.length >= FREE_KEY_MAX_PER_USER) {
         return res.redirect(
@@ -1126,6 +1336,25 @@ module.exports = function mountDiscordOAuth(app) {
     }
 
     try {
+      // blokir banned
+      try {
+        const profile = await getDiscordUserProfile(userId);
+        if (profile && profile.banned === true) {
+          return res.redirect(
+            redirectBase +
+              "&error=" +
+              encodeURIComponent(
+                "This Discord account is banned. Free keys are restricted."
+              )
+          );
+        }
+      } catch (errProfile) {
+        console.warn(
+          "[serverv2] extend free key banned-check error:",
+          errProfile
+        );
+      }
+
       const rec = await kvGetJson(tokenKey(token));
       if (!rec || String(rec.userId) !== String(userId)) {
         return res.redirect(
@@ -1314,7 +1543,7 @@ module.exports = function mountDiscordOAuth(app) {
 
       const expired =
         rec.expiresAfter && typeof rec.expiresAfter === "number"
-          ? now > rec.expiresAfter
+          ? now > rec.expiresAfter && rec.expiresAfter !== 0
           : false;
       const deleted = !!rec.deleted;
       const valid = !!rec.valid && !deleted && !expired;
@@ -1427,7 +1656,7 @@ module.exports = function mountDiscordOAuth(app) {
           typeof k.expired === "boolean"
             ? k.expired
             : expiresAfter
-            ? now > expiresAfter
+            ? now > expiresAfter && expiresAfter !== 0
             : false;
 
         return {
@@ -1519,6 +1748,29 @@ module.exports = function mountDiscordOAuth(app) {
   });
 
   // --------------------------------------------------
+  // API: Key config untuk bot / panel lain
+  // --------------------------------------------------
+  app.get("/api/key-config", async (req, res) => {
+    try {
+      const [freeKeyUiConfig, keyPlanConfig] = await Promise.all([
+        getFreeKeyUiConfigEffective(),
+        getKeyPlanConfigEffective(),
+      ]);
+      res.json({
+        ok: true,
+        freeKeyUiConfig,
+        keyPlanConfig,
+      });
+    } catch (err) {
+      console.error("[serverv2] /api/key-config error:", err);
+      res.status(500).json({
+        ok: false,
+        error: "INTERNAL_ERROR",
+      });
+    }
+  });
+
+  // --------------------------------------------------
   // API kecil: GET /api/discord/owners
   // (hanya info, tidak dipakai untuk login admin)
   // --------------------------------------------------
@@ -1536,6 +1788,9 @@ module.exports = function mountDiscordOAuth(app) {
       ? String(req.query.user)
       : null;
 
+    const freeKeyUiConfig = await getFreeKeyUiConfigEffective();
+    const keyPlanConfig = await getKeyPlanConfigEffective();
+
     if (!hasFreeKeyKV) {
       return res.render("admin-dashboarddiscord", {
         title: "Admin – Discord Key Manager",
@@ -1551,6 +1806,8 @@ module.exports = function mountDiscordOAuth(app) {
         selectedUser: null,
         selectedUserSummary: null,
         selectedUserKeys: [],
+        freeKeyUiConfig,
+        keyPlanConfig,
       });
     }
 
@@ -1771,8 +2028,97 @@ module.exports = function mountDiscordOAuth(app) {
       selectedUser,
       selectedUserSummary,
       selectedUserKeys,
+      freeKeyUiConfig,
+      keyPlanConfig,
     });
   });
+
+  // Update konfigurasi UI + TTL key (form global di admin-dashboarddiscord)
+  app.post(
+    "/admin/discord/update-key-config",
+    requireAdmin,
+    async (req, res) => {
+      if (!hasFreeKeyKV) {
+        return res.redirect("/admin/discord");
+      }
+
+      const body = req.body || {};
+
+      const dashboardCaption = (body.globalDashboardCaption || "")
+        .toString()
+        .trim();
+      const validityLabel = (body.globalValidityLabel || "")
+        .toString()
+        .trim();
+
+      const workinkDescription = (body.workinkDescription || "")
+        .toString()
+        .trim();
+      const linkvertiseDescription = (body.linkvertiseDescription || "")
+        .toString()
+        .trim();
+
+      const freeTtlHoursRaw = body.freeTtlHours;
+      const paidMonthTtlDaysRaw = body.paidMonthTtlDays;
+      const paidLifetimeTtlDaysRaw = body.paidLifetimeTtlDays;
+
+      let freeTtlHours =
+        parseInt(freeTtlHoursRaw, 10) || FREE_KEY_TTL_DEFAULT_HOURS;
+      if (!Number.isFinite(freeTtlHours) || freeTtlHours <= 0) {
+        freeTtlHours = FREE_KEY_TTL_DEFAULT_HOURS;
+      }
+
+      let paidMonthTtlDays =
+        parseInt(paidMonthTtlDaysRaw, 10) ||
+        DEFAULT_KEYPLAN_CONFIG.paidMonth.ttlDays;
+      if (!Number.isFinite(paidMonthTtlDays) || paidMonthTtlDays <= 0) {
+        paidMonthTtlDays = DEFAULT_KEYPLAN_CONFIG.paidMonth.ttlDays;
+      }
+
+      let paidLifetimeTtlDays =
+        paidLifetimeTtlDaysRaw !== undefined &&
+        paidLifetimeTtlDaysRaw !== null &&
+        paidLifetimeTtlDaysRaw !== ""
+          ? parseInt(paidLifetimeTtlDaysRaw, 10)
+          : DEFAULT_KEYPLAN_CONFIG.paidLifetime.ttlDays;
+      if (!Number.isFinite(paidLifetimeTtlDays)) {
+        paidLifetimeTtlDays = DEFAULT_KEYPLAN_CONFIG.paidLifetime.ttlDays;
+      }
+      if (paidLifetimeTtlDays < 0) {
+        paidLifetimeTtlDays = DEFAULT_KEYPLAN_CONFIG.paidLifetime.ttlDays;
+      }
+
+      const uiConfig = {
+        global: {
+          dashboardCaption,
+          validityLabel,
+        },
+        workink: {
+          dashboardDescription: workinkDescription,
+        },
+        linkvertise: {
+          dashboardDescription: linkvertiseDescription,
+        },
+      };
+
+      const keyPlanConfig = {
+        freeKey: { ttlHours: freeTtlHours },
+        paidMonth: { ttlDays: paidMonthTtlDays },
+        paidLifetime: { ttlDays: paidLifetimeTtlDays },
+      };
+
+      try {
+        await Promise.all([
+          setFreeKeyUiConfig(uiConfig),
+          setKeyPlanConfig(keyPlanConfig),
+        ]);
+      } catch (err) {
+        console.error("[serverv2] update-key-config error:", err);
+      }
+
+      res.redirect("/admin/discord");
+    }
+  );
 
   // Ban user
   app.post("/admin/discord/ban-user", requireAdmin, async (req, res) => {
@@ -1973,15 +2319,14 @@ module.exports = function mountDiscordOAuth(app) {
 
       if (paidRec) {
         const typeRaw = (paidRec.type || "").toLowerCase();
-        let durationMs;
-        if (typeRaw === "month") {
-          durationMs = 30 * 24 * 60 * 60 * 1000;
-        } else if (typeRaw === "lifetime") {
-          durationMs = 365 * 24 * 60 * 60 * 1000;
+        const durationMs = await computePaidRenewDurationMs(typeRaw);
+        let newExpires;
+        if (durationMs === 0) {
+          // lifetime no-expire
+          newExpires = 0;
         } else {
-          durationMs = 30 * 24 * 60 * 60 * 1000;
+          newExpires = now + durationMs;
         }
-        const newExpires = now + durationMs;
         await setPaidKeyRecord({
           token,
           createdAt: paidRec.createdAt || now,
