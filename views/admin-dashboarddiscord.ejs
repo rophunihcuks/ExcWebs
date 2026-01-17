@@ -7,7 +7,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="color-scheme" content="dark" />
   <link rel="icon" type="image/png" href="/img/ExLogo2.png" />
-  <!-- GANTI KE CSS V2 -->
+  <!-- CSS PANEL V2 -->
   <link rel="stylesheet" href="/css/mainv2.css" />
 </head>
 <body class="page-dark admin-page admin-page--discord">
@@ -201,14 +201,15 @@
                     <th>Paid / Free</th>
                     <th>Last Login</th>
                     <th>Last Key Expires</th>
-                    <th>Status</th>
+                    <th>STATUS KEY</th>
+                    <th>STATUS ACC DC</th>
                     <th class="key-col-actions">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   <% userStats.forEach(function(row) { %>
                     <tr
-                      class="discord-user-row <%= selectedUser && selectedUser.discordId === row.discordId ? 'key-row-highlight' : '' %>"
+                      class="discord-user-row <%= selectedUser && selectedUser.discordId === row.discordId ? 'key-row-highlight' : '' %> <%= row.banned ? 'discord-user-row--banned' : '' %>"
                       data-discord-id="<%= row.discordId %>"
                     >
                       <!-- DISCORD USER -->
@@ -282,22 +283,46 @@
                         <% } %>
                       </td>
 
-                      <!-- STATUS -->
+                      <!-- STATUS KEY -->
                       <td class="table-main-text">
                         <%
                           var banned = !!row.banned;
-                          var hasKeys = (row.totalKeys || 0) > 0;
-                          var statusLabel = banned ? 'Banned' : (hasKeys ? 'Active' : 'No Keys');
-                          var statusClass =
-                            banned
-                              ? 'status-pill status-pill--expired'
-                              : hasKeys
-                              ? 'status-pill status-pill--active'
-                              : 'status-pill status-pill--pending';
+                          var totalKeys = row.totalKeys || 0;
+                          var activeKeys = row.activeKeys || 0;
+                          var statusKeyLabel;
+                          var statusKeyClass;
+
+                          if (totalKeys === 0) {
+                            // Tidak punya key sama sekali
+                            statusKeyLabel = 'No Keys';
+                            statusKeyClass = 'status-pill status-pill--pending';
+                          } else if (activeKeys > 0) {
+                            // Ada minimal 1 key yang masih aktif
+                            statusKeyLabel = 'Active';
+                            statusKeyClass = 'status-pill status-pill--active';
+                          } else {
+                            // Punya key, tapi semua sudah expired / deleted
+                            statusKeyLabel = 'Expired';
+                            statusKeyClass = 'status-pill status-pill--expired';
+                          }
                         %>
-                        <span class="<%= statusClass %>">
+                        <span class="<%= statusKeyClass %>">
                           <span class="status-pill-dot"></span>
-                          <span class="status-pill-text"><%= statusLabel %></span>
+                          <span class="status-pill-text"><%= statusKeyLabel %></span>
+                        </span>
+                      </td>
+
+                      <!-- STATUS ACC DC -->
+                      <td class="table-main-text">
+                        <%
+                          var statusAccLabel = banned ? 'Banned' : 'Active';
+                          var statusAccClass = banned
+                            ? 'status-pill status-pill--expired'
+                            : 'status-pill status-pill--active';
+                        %>
+                        <span class="<%= statusAccClass %>">
+                          <span class="status-pill-dot"></span>
+                          <span class="status-pill-text"><%= statusAccLabel %></span>
                         </span>
                       </td>
 
@@ -456,28 +481,28 @@
                       <div class="discord-user-summary-label">Total Keys</div>
                       <div class="discord-user-summary-value">
                         <%= selectedUserSummary && typeof selectedUserSummary.total !== 'undefined'
-                              ? selectedUserSummary.total : (selectedUser.totalKeys || 0) %>
+                              ? selectedUserSummary.total : 0 %>
                       </div>
                     </div>
                     <div class="discord-user-summary-pill">
                       <div class="discord-user-summary-label">Paid</div>
                       <div class="discord-user-summary-value">
                         <%= selectedUserSummary && typeof selectedUserSummary.paid !== 'undefined'
-                              ? selectedUserSummary.paid : (selectedUser.paidKeys || 0) %>
+                              ? selectedUserSummary.paid : 0 %>
                       </div>
                     </div>
                     <div class="discord-user-summary-pill">
                       <div class="discord-user-summary-label">Free</div>
                       <div class="discord-user-summary-value">
                         <%= selectedUserSummary && typeof selectedUserSummary.free !== 'undefined'
-                              ? selectedUserSummary.free : (selectedUser.freeKeys || 0) %>
+                              ? selectedUserSummary.free : 0 %>
                       </div>
                     </div>
                     <div class="discord-user-summary-pill">
                       <div class="discord-user-summary-label">Active</div>
                       <div class="discord-user-summary-value">
                         <%= selectedUserSummary && typeof selectedUserSummary.active !== 'undefined'
-                              ? selectedUserSummary.active : (selectedUser.activeKeys || 0) %>
+                              ? selectedUserSummary.active : 0 %>
                       </div>
                     </div>
                     <div class="discord-user-summary-pill">
@@ -542,7 +567,10 @@
                       </thead>
                       <tbody>
                         <% selectedUserKeys.forEach(function(k) { %>
-                          <tr id="discord-<%= encodeURIComponent(selectedUser.discordId) %>-token-<%= encodeURIComponent(k.token || k.key) %>">
+                          <tr
+                            id="discord-<%= encodeURIComponent(selectedUser.discordId) %>-token-<%= encodeURIComponent(k.token || k.key) %>"
+                            data-key-tier="<%= k.free ? 'free' : 'paid' %>"
+                          >
                             <!-- TOKEN -->
                             <td class="key-cell-token">
                               <div class="token-row">
@@ -606,13 +634,9 @@
                                       type="text"
                                       name="expiresAt"
                                       class="key-input key-input-sm admin-ttl-input"
-                                      value="<%=
-                                        (k.status === 'Active' &&
-                                         k.timeLeftLabel &&
-                                         k.timeLeftLabel !== 'Expired')
-                                          ? k.timeLeftLabel
-                                          : ''
-                                      %>"
+                                      inputmode="numeric"
+                                      pattern="[0-9:]*"
+                                      value="<%= (k.status === 'Active' && k.timeLeftLabel && k.timeLeftLabel !== 'Expired') ? k.timeLeftLabel : '' %>"
                                       placeholder="HH:MM:SS"
                                       autocomplete="off"
                                     />
@@ -644,21 +668,23 @@
                             <!-- STATUS + LIVE COUNTDOWN -->
                             <td class="key-cell-status">
                               <%
-                                var statusLabel = k.status || 'Active';
-                                var statusClass =
-                                  statusLabel === 'Active'
+                                var statusLabelDetail = k.status || 'Active';
+                                var statusClassDetail =
+                                  statusLabelDetail === 'Active'
                                     ? 'status-pill status-pill--active'
-                                    : statusLabel === 'Expired'
+                                    : statusLabelDetail === 'Expired'
+                                    ? 'status-pill status-pill--expired'
+                                    : statusLabelDetail === 'Deleted'
                                     ? 'status-pill status-pill--expired'
                                     : 'status-pill status-pill--pending';
                               %>
                               <span
-                                class="<%= statusClass %>"
+                                class="<%= statusClassDetail %>"
                                 data-status-pill="1"
                                 data-token="<%= k.token || k.key %>"
                               >
                                 <span class="status-pill-dot"></span>
-                                <span class="status-pill-text"><%= statusLabel %></span>
+                                <span class="status-pill-text"><%= statusLabelDetail %></span>
                               </span>
                               <div
                                 class="table-sub-text time-left-container"
@@ -790,6 +816,7 @@
       });
     })();
   </script>
+
   <!-- Proteksi dasar: blokir klik kanan + beberapa shortcut DevTools -->
   <script src="/js/protect-devtools.js"></script>
 </body>
