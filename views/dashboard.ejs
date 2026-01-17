@@ -45,7 +45,7 @@
 
 <main class="page-main">
   <div class="container dashboard-layout">
-    <% 
+    <%
       // Data dari serverv2.getUserKeys(discordUser)
       var keys = (keyData && Array.isArray(keyData.keys)) ? keyData.keys : [];
       var isBannedAccount = keyData && keyData.banned === true;
@@ -325,9 +325,22 @@
         <% if (keys.length > 0) { %>
           <% keys.forEach(function(k) {
               var keyLabel = k.key || k.token || '';
-              
+
               // --- Provider & Type Normalization ---
-              var providerRaw = k.provider || k.providerLabel || k.source || '';
+              // Coba ambil provider dari beberapa field yang mungkin digunakan server:
+              // provider, providerLabel, source, adsProvider, ads, originAds, origin, freeSource, free_source
+              var providerRaw =
+                k.provider ||
+                k.providerLabel ||
+                k.source ||
+                k.adsProvider ||
+                k.ads ||
+                k.originAds ||
+                k.origin ||
+                k.freeSource ||
+                k.free_source ||
+                '';
+
               var typeRaw     = k.type || k.keyType || '';
               var typeLower   = (typeRaw || '').toString().toLowerCase();
               var providerLbl = providerRaw || '';
@@ -338,19 +351,33 @@
                 providerLbl = (typeLower === 'month') ? 'PAID_MONTH' : 'PAID_LIFETIME';
               }
 
-              var provLower = providerLbl.toLowerCase();
+              var provLower = providerLbl.toLowerCase().trim();
 
-              if (provLower === 'workink' || provLower === 'work.ink') {
-                providerLbl = 'Work.ink';
-              } else if (provLower.indexOf('linkvertise') !== -1) {
+              // PRIORITAS: kalau string ada "linkvertise" → Linkvertise
+              if (provLower.indexOf('linkvertise') !== -1 || provLower === 'lv') {
                 providerLbl = 'Linkvertise';
-              } else if (provLower.indexOf('paid month') !== -1 || provLower.indexOf('paid_month') !== -1 || typeLower === 'month') {
+              } else if (
+                provLower.indexOf('workink') !== -1 ||
+                provLower.indexOf('work.ink') !== -1 ||
+                provLower === 'wi'
+              ) {
+                providerLbl = 'Work.ink';
+              } else if (
+                provLower.indexOf('paid month') !== -1 ||
+                provLower.indexOf('paid_month') !== -1 ||
+                typeLower === 'month'
+              ) {
                 providerLbl = 'PAID MONTH';
                 isPaidKey = true;
-              } else if (provLower.indexOf('paid lifetime') !== -1 || provLower.indexOf('paid_life') !== -1 || typeLower === 'lifetime') {
+              } else if (
+                provLower.indexOf('paid lifetime') !== -1 ||
+                provLower.indexOf('paid_life') !== -1 ||
+                typeLower === 'lifetime'
+              ) {
                 providerLbl = 'PAID LIFETIME';
                 isPaidKey = true;
               } else if (provLower.indexOf('exhub paid') !== -1) {
+                // ExHub paid lainnya
                 isPaidKey = true;
               }
 
@@ -511,9 +538,6 @@
     var premiumCount = 0;
 
     rows.forEach(function (row) {
-      if (row.style.display === 'none') {
-        // masih dihitung ke stats global; kalau mau "per filter" bisa diubah
-      }
       total++;
       var status = (row.getAttribute('data-status') || '').toLowerCase();
       var tier   = (row.getAttribute('data-tier') || '').toLowerCase();
