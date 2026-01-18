@@ -969,6 +969,181 @@
             </div>
           <% } %>
         </section>
+
+        <!-- ========== USER EXEC DETAIL (PER KEY / PER DISCORD USER) ========== -->
+        <section class="card admin-card-user-exec" style="margin-top:18px;">
+          <div class="card-header">
+            <div class="card-header-main">
+              <h2 class="section-title small">
+                User Exec Detail
+                <% if (selectedUser && selectedUser.discordId) { %>
+                  — <span class="mono">
+                    <%= selectedUser.globalName || selectedUser.username || selectedUser.discordId %>
+                  </span>
+                <% } else { %>
+                  (select user)
+                <% } %>
+              </h2>
+              <p class="card-description">
+                Ringkasan <strong>data eksekusi loader</strong> per key untuk user ini,
+                diambil dari tracking <code>/api/exec</code>. Setiap baris merepresentasikan
+                1 KEY, dihubungkan ke entry <code>exec-users</code> berdasarkan
+                <code>keyToken</code>, sehingga <strong>IP, Roblox username, HWID,
+                totalExecutes, executorUse, dan riwayat map (allMapList)</strong> selalu
+                sesuai dengan KEY yang dipakai.
+              </p>
+            </div>
+          </div>
+
+          <% if (!selectedUser || !selectedUser.discordId) { %>
+            <div class="empty-state small">
+              <p>
+                Pilih user dari tabel <strong>Discord Users Overview</strong> untuk melihat
+                detail eksekusi per key.
+              </p>
+            </div>
+          <% } else if (!selectedUserKeys || selectedUserKeys.length === 0) { %>
+            <div class="empty-state small">
+              <p>
+                User ini belum memiliki key, sehingga belum ada data eksekusi yang bisa
+                ditampilkan.
+              </p>
+            </div>
+          <% } else { %>
+            <%
+              // Cek apakah ada minimal 1 key dengan execStats
+              var hasExecStats = selectedUserKeys.some(function(k) {
+                return k && k.execStats;
+              });
+            %>
+
+            <% if (!hasExecStats) { %>
+              <div class="empty-state small">
+                <p>
+                  Belum ada data eksekusi yang ter-link ke key user ini.
+                  Pastikan backend <code>/admin/discord</code> sudah mengisi
+                  <code>k.execStats</code> per token dari data <code>exec-users</code>.
+                </p>
+              </div>
+            <% } else { %>
+              <div class="table-wrapper key-admin-table-wrapper">
+                <table class="table table-compact key-table-activity key-table-activity--detail">
+                  <thead>
+                    <tr>
+                      <th>Key Token</th>
+                      <th>Roblox User</th>
+                      <th>HWID / Executor</th>
+                      <th>IP &amp; Total Exec</th>
+                      <th>Map History (allMapList)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <% selectedUserKeys.forEach(function(k) { 
+                         var es = k.execStats || {};
+                         var maps = Array.isArray(es.allMapList) ? es.allMapList : [];
+                    %>
+                      <tr>
+                        <!-- KEY TOKEN -->
+                        <td class="table-main-text">
+                          <div class="mono"><strong><%= k.token || k.key %></strong></div>
+                          <div class="table-sub-text">
+                            <%= k.provider || k.source || (k.free ? 'Free' : 'Paid') %>
+                          </div>
+                        </td>
+
+                        <!-- ROBLOX USER -->
+                        <td class="table-main-text">
+                          <% if (es && (es.username || es.displayName || es.userId)) { %>
+                            <div>
+                              <strong><%= es.username || '(no username)' %></strong>
+                              <% if (es.displayName) { %>
+                                <span class="table-sub-text">
+                                  (<%= es.displayName %>)
+                                </span>
+                              <% } %>
+                            </div>
+                            <div class="table-sub-text mono">
+                              User ID Roblox:
+                              <%= es.userId != null ? es.userId : '-' %>
+                            </div>
+                          <% } else { %>
+                            <div class="table-sub-text">
+                              No execution data for this key.
+                            </div>
+                          <% } %>
+                        </td>
+
+                        <!-- HWID / EXECUTOR -->
+                        <td class="table-main-text">
+                          <div class="table-sub-text mono">
+                            HWID:
+                            <%= es.hwid || '-' %>
+                          </div>
+                          <div class="table-sub-text">
+                            Executor:
+                            <strong><%= es.executorUse || '-' %></strong>
+                          </div>
+                        </td>
+
+                        <!-- IP & TOTAL EXEC -->
+                        <td class="table-main-text">
+                          <div class="table-sub-text mono">
+                            IP:
+                            <%= es.lastIp || es.ip || '-' %>
+                          </div>
+                          <div class="table-sub-text">
+                            totalExecutes:
+                            <strong><%= es.totalExecutes != null ? es.totalExecutes : '-' %></strong>
+                          </div>
+                        </td>
+
+                        <!-- MAP HISTORY -->
+                        <td class="table-main-text">
+                          <% if (!maps.length) { %>
+                            <div class="table-sub-text">
+                              No map history recorded for this key.
+                            </div>
+                          <% } else { %>
+                            <div class="discord-map-history">
+                              <% maps.slice(0, 3).forEach(function(m) { %>
+                                <div class="discord-map-chip">
+                                  <div class="discord-map-chip-main">
+                                    <%= m.mapName || 'Unknown Map' %>
+                                  </div>
+                                  <div class="discord-map-chip-sub mono">
+                                    PID: <%= m.placeId || '-' %>
+                                    <% if (m.gameId) { %>
+                                      &nbsp;| GameID: <%= m.gameId %>
+                                    <% } %>
+                                  </div>
+                                  <% if (Array.isArray(m.serverIds) && m.serverIds.length) { %>
+                                    <div class="discord-map-chip-sub mono">
+                                      ServerIds: <%= m.serverIds.join(', ') %>
+                                    </div>
+                                  <% } else if (m.serverId) { %>
+                                    <div class="discord-map-chip-sub mono">
+                                      ServerId: <%= m.serverId %>
+                                    </div>
+                                  <% } %>
+                                </div>
+                              <% }); %>
+
+                              <% if (maps.length > 3) { %>
+                                <div class="discord-map-chip discord-map-chip--more">
+                                  +<%= maps.length - 3 %> more map(s)
+                                </div>
+                              <% } %>
+                            </div>
+                          <% } %>
+                        </td>
+                      </tr>
+                    <% }); %>
+                  </tbody>
+                </table>
+              </div>
+            <% } %>
+          <% } %>
+        </section>
       </main>
     </div>
   </div>
