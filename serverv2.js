@@ -47,10 +47,19 @@ const hasFreeKeyKV = !!(KV_REST_API_URL && KV_REST_API_TOKEN);
 // Index semua user Discord yang pernah login
 const DISCORD_USER_INDEX_KEY = "exhub:discord:userindex";
 
-// Snapshot agregat eksekusi loader (per key/per Discord)
-// Harus sama dengan yang dipakai server.js (/api/exec)
-const EXEC_USERS_KEY = "exhub:exec:users";
+// Snapshot agregat eksekusi loader (per key/per Discord) – harus sama dengan server.js /api/exec
+// Format utama (baru):
+//   - SMEMBERS exhub:exec-users:index  -> daftar entryKey
+//   - GET exhub:exec-user:<entryKey>   -> JSON per kombinasi scriptId/userId/hwid
+// Fallback legacy (lama):
+//   - GET exhub:exec-users             -> array entries
+const EXEC_USER_ENTRY_PREFIX = "exhub:exec-user:";
+const EXEC_USERS_INDEX_KEY = "exhub:exec-users:index";
+const EXEC_USERS_KEY = "exhub:exec-users";
 
+// ---------------------------------------------------------
+// Helper KV umum
+// ---------------------------------------------------------
 async function kvRequest(pathPart) {
   if (!hasFreeKeyKV || typeof fetch === "undefined") return null;
 
@@ -742,92 +751,66 @@ function makeDiscordBannerUrl(profile) {
 // Exec tracking helpers (User Exec Detail /admin/discord)
 // ---------------------------------------------------------
 //
-// Data diambil dari KV EXEC_USERS_KEY ("exhub:exec:users").
-// Bentuk KV yang disupport (fleksibel, supaya match dengan server.js /api/exec):
+// Data diambil dari KV yang juga dipakai server.js /api/exec
 //
-// 1) Mode byKey:
-//    {
-//      "byKey": {
-//         "EXHUBPAID-XXXX": { ... },
-//         "EXHUBFREE-YYYY": { ... }
-//      }
-//    }
+// Format baru (utama):
+//   - SMEMBERS exhub:exec-users:index  -> ["entryKey1","entryKey2",...]
+//   - GET exhub:exec-user:<entryKey>   -> JSON per kombinasi scriptId/userId/hwid
 //
-// 2) Mode per Discord user:
-//    {
-//      "users": {
-//         "123456789": {
-//            discordId: "123456789",
-//            username: "...",
-//            keys: {
-//               "EXHUBPAID-XXXX": { ... },
-//               "EXHUBFREE-YYYY": { ... }
-//            }
-//         }
-//      }
-//    }
+// Fallback legacy (lama):
+//   - GET exhub:exec-users -> JSON array [ entry, entry, ... ]
 //
-// 3) Mode root (langsung token → entry):
-//    {
-//      "EXHUBPAID-XXXX": { ... },
-//      "EXHUBFREE-YYYY": { ... },
-//      "updatedAt": 1731231231231
-//    }
-//
-// 4) Mode array of entries:
-//    [
-//      { keyToken: "EXHUBPAID-XXXX", ... },
-//      { keyToken: "EXHUBFREE-YYYY", ... }
-//    ]
-//
-function normalizeExecStatsFromKeyEntry(keyToken, keyEntry, userContext, discordId) {
-  if (!keyEntry || typeof keyEntry !== "object") return null;
+// Output akhir: indexByToken = {
+//   "EXHUBPAID-XXXX": {
+//      keyToken, username, displayName, userId,
+//      hwid, executorUse, totalExecutes,
+//      lastIp, ip, allMapList[], discordId
+//   }, ...
+// }
+async function kvExecGetRaw(key) {
+  return kvRequest(kvPath("GET", key));
+}
 
-  const uc =
-    userContext && typeof userContext === "object" ? userContext : {};
+async function kvExecSMembers(key) {
+  const res = await kvRequest(kvPath("SMEMBERS", key));
+  return Array.isArray(res) ? res : [];
+}
 
-  // token/keyToken
-  const kt = String(
-    keyToken ||
-      keyEntry.keyToken ||
-      keyEntry.token ||
-      keyEntry.key ||
-      ""
-  ).trim();
-  if (!kt) return null;
+function addExecEntryToIndex(indexByToken, entry) {
+  if (!entry || typeof entry !== "object") return;
 
-  // Roblox username / displayName
+  const rawToken =
+    entry.keyToken ||
+    entry.token ||
+    entry.key ||
+    entry.keyId ||
+    null;
+  if (!rawToken) return;
+
+  const token = String(rawToken).trim();
+  if (!token) return;
+  const tokenUpper = token.toUpperCase();
+
   const username =
-    keyEntry.robloxUsername ||
-    keyEntry.username ||
-    keyEntry.userName ||
-    keyEntry.playerName ||
-    uc.robloxUsername ||
-    uc.username ||
-    uc.userName ||
-    uc.playerName ||
+    entry.username ||
+    entry.robloxUsername ||
+    entry.userName ||
+    entry.playerName ||
     null;
 
   const displayName =
-    keyEntry.robloxDisplayName ||
-    keyEntry.displayName ||
-    uc.robloxDisplayName ||
-    uc.displayName ||
+    entry.displayName ||
+    entry.robloxDisplayName ||
     null;
 
-  // Roblox userId (banyak kemungkinan nama field)
   let userId = null;
-  const candIds = [
-    keyEntry.robloxUserId,
-    keyEntry.userId,
-    keyEntry.robloxId,
-    keyEntry.playerId,
-    uc.robloxUserId,
-    uc.userId,
-    uc.robloxId,
-    uc.playerId,
+  const idCandidates = [
+    entry.userId,
+    entry.robloxUserId,
+    entry.playerId,
+    entry.robloxId,
   ];
-  for (const cid of candIds) {
+  for (const cid of idCandidates) {
     if (cid === undefined || cid === null || cid === "") continue;
     const n = Number(cid);
     if (!Number.isNaN(n)) {
@@ -836,35 +819,25 @@ function normalizeExecStatsFromKeyEntry(keyToken, keyEntry, userContext, discord
     }
   }
 
-  // HWID
   const hwid =
-    keyEntry.hwid ||
-    keyEntry.HWID ||
-    uc.hwid ||
-    uc.HWID ||
+    entry.hwid ||
+    entry.HWID ||
     null;
 
-  // Executor
   const executorUse =
-    keyEntry.executorUse ||
-    keyEntry.executor ||
-    keyEntry.executorName ||
-    uc.executorUse ||
-    uc.executor ||
-    uc.executorName ||
+    entry.executorUse ||
+    entry.executor ||
+    entry.executorName ||
     null;
 
-  // totalExecutes (support banyak alias)
   let totalExecutes = null;
   const execCandidates = [
-    keyEntry.totalExecutes,
-    keyEntry.totalExecute,
-    keyEntry.execCount,
-    keyEntry.executeCount,
-    keyEntry.count,
-    uc.totalExecutes,
-    uc.totalExecute,
-    uc.execCount,
+    entry.totalExecutes,
+    entry.totalExecute,
+    entry.execCount,
+    entry.executeCount,
+    entry.clientExecuteCount,
+    entry.count,
   ];
   for (const val of execCandidates) {
     if (typeof val === "number" && Number.isFinite(val)) {
@@ -872,29 +845,21 @@ function normalizeExecStatsFromKeyEntry(keyToken, keyEntry, userContext, discord
       break;
     }
   }
+  if (totalExecutes == null) totalExecutes = 1;
 
-  // IP
   const lastIp =
-    keyEntry.lastIp ||
-    keyEntry.ip ||
-    keyEntry.lastIP ||
-    uc.lastIp ||
-    uc.ip ||
-    uc.lastIP ||
+    entry.lastIp ||
+    entry.ip ||
+    entry.lastIP ||
     null;
 
-  // Map history / allMapList
   let allMapList = [];
   const mapCandidates = [
-    keyEntry.allMapList,
-    keyEntry.mapList,
-    keyEntry.maps,
-    keyEntry.mapHistory,
-    keyEntry.mapsHistory,
-    uc.allMapList,
-    uc.mapList,
-    uc.maps,
-    uc.mapHistory,
+    entry.allMapList,
+    entry.mapList,
+    entry.maps,
+    entry.mapHistory,
+    entry.mapsHistory,
   ];
   for (const m of mapCandidates) {
     if (Array.isArray(m) && m.length) {
@@ -903,201 +868,140 @@ function normalizeExecStatsFromKeyEntry(keyToken, keyEntry, userContext, discord
     }
   }
 
-  return {
-    keyToken: kt,
-    discordId: discordId ? String(discordId) : uc.discordId || null,
-    username,
-    displayName,
-    userId,
-    hwid,
-    executorUse,
-    totalExecutes,
-    lastIp,
-    ip: lastIp,
-    allMapList,
-  };
+  const discordId = entry.discordId || entry.ownerDiscordId || null;
+
+  let agg = indexByToken[tokenUpper];
+  if (!agg) {
+    agg = {
+      keyToken: token,
+      username,
+      displayName,
+      userId,
+      hwid,
+      executorUse,
+      totalExecutes: 0,
+      lastIp: null,
+      ip: null,
+      allMapList: [],
+      discordId: discordId ? String(discordId) : null,
+    };
+  }
+
+  agg.totalExecutes = (agg.totalExecutes || 0) + (totalExecutes || 0);
+
+  if (!agg.username && username) agg.username = username;
+  if (!agg.displayName && displayName) agg.displayName = displayName;
+  if (agg.userId == null && userId != null) agg.userId = userId;
+  if (!agg.hwid && hwid) agg.hwid = hwid;
+  if (!agg.executorUse && executorUse) agg.executorUse = executorUse;
+  if (!agg.discordId && discordId) agg.discordId = String(discordId);
+
+  if (lastIp && !agg.lastIp) {
+    agg.lastIp = lastIp;
+    agg.ip = lastIp;
+  }
+
+  if (Array.isArray(allMapList) && allMapList.length) {
+    if (!Array.isArray(agg.allMapList)) agg.allMapList = [];
+    const existing = agg.allMapList;
+    const seen = new Set();
+    for (const m of existing) {
+      try {
+        seen.add(JSON.stringify(m));
+      } catch {
+        // ignore
+      }
+    }
+    for (const m of allMapList) {
+      if (!m) continue;
+      let keyJson;
+      try {
+        keyJson = JSON.stringify(m);
+      } catch {
+        keyJson = null;
+      }
+      if (!keyJson || seen.has(keyJson)) continue;
+      seen.add(keyJson);
+      existing.push(m);
+    }
+  }
+
+  indexByToken[tokenUpper] = agg;
 }
 
 async function loadExecIndexByToken() {
-  if (!hasFreeKeyKV) return {};
-  let snap;
-  try {
-    snap = await kvGetJson(EXEC_USERS_KEY);
-  } catch (err) {
-    console.warn("[serverv2] loadExecIndexByToken KV error:", err);
-    return {};
-  }
-
   const index = {};
-  if (!snap) return index;
+  if (!hasFreeKeyKV) return index;
 
-  // ===== MODE 1: explicit "byKey" =====
-  if (snap.byKey && typeof snap.byKey === "object") {
-    for (const [token, raw] of Object.entries(snap.byKey)) {
-      if (!raw || typeof raw !== "object") continue;
-      const es = normalizeExecStatsFromKeyEntry(
-        token,
-        raw,
-        raw,
-        raw.discordId || raw.ownerDiscordId || null
-      );
-      if (!es) continue;
-      const canon = es.keyToken.toUpperCase();
-      if (!index[canon]) index[canon] = es;
-    }
-  }
+  // Format baru: index set
+  try {
+    const entryKeys = await kvExecSMembers(EXEC_USERS_INDEX_KEY);
+    if (Array.isArray(entryKeys) && entryKeys.length) {
+      for (const entryKey of entryKeys) {
+        if (!entryKey) continue;
+        try {
+          const raw = await kvExecGetRaw(
+            `${EXEC_USER_ENTRY_PREFIX}${entryKey}`
+          );
+          if (!raw || typeof raw !== "string" || !raw.trim()) continue;
 
-  // ===== MODE 2: per Discord user (users[discordId].keys[token]) =====
-  const usersObj =
-    (snap.users && typeof snap.users === "object" && snap.users) ||
-    (snap.byDiscordId &&
-      typeof snap.byDiscordId === "object" &&
-      snap.byDiscordId) ||
-    null;
-
-  if (usersObj) {
-    for (const [discordId, u] of Object.entries(usersObj)) {
-      if (!u || typeof u !== "object") continue;
-      const uc = Object.assign({}, u, { discordId });
-      const keysObj =
-        (u.keys && typeof u.keys === "object" && u.keys) ||
-        (u.keyStats && typeof u.keyStats === "object" && u.keyStats) ||
-        null;
-      if (!keysObj) continue;
-
-      for (const [token, keyEntry] of Object.entries(keysObj)) {
-        if (!keyEntry || typeof keyEntry !== "object") continue;
-        const es = normalizeExecStatsFromKeyEntry(
-          token,
-          keyEntry,
-          uc,
-          discordId
-        );
-        if (!es) continue;
-        const canon = es.keyToken.toUpperCase();
-        if (!index[canon]) {
-          index[canon] = es;
-        } else {
-          const prev = index[canon];
-          const merged = Object.assign({}, prev);
-
-          if (
-            typeof es.totalExecutes === "number" &&
-            (typeof prev.totalExecutes !== "number" ||
-              es.totalExecutes > prev.totalExecutes)
-          ) {
-            merged.totalExecutes = es.totalExecutes;
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            parsed = null;
           }
-          if (es.lastIp && !prev.lastIp) {
-            merged.lastIp = es.lastIp;
-            merged.ip = es.lastIp;
-          }
-          if (Array.isArray(es.allMapList) && es.allMapList.length) {
-            merged.allMapList = es.allMapList;
-          }
+          if (!parsed || typeof parsed !== "object") continue;
 
-          index[canon] = merged;
+          addExecEntryToIndex(index, parsed);
+        } catch (err) {
+          console.warn(
+            "[serverv2] loadExecIndexByToken: error baca entry",
+            entryKey,
+            err
+          );
         }
       }
     }
+  } catch (err) {
+    console.warn(
+      "[serverv2] loadExecIndexByToken index set error:",
+      err
+    );
   }
 
-  // ===== MODE 3: flat object di root (token → entry) =====
-  if (snap && typeof snap === "object" && !Array.isArray(snap)) {
-    const reserved = new Set([
-      "byKey",
-      "users",
-      "byDiscordId",
-      "meta",
-      "updatedAt",
-    ]);
-
-    for (const [token, raw] of Object.entries(snap)) {
-      if (reserved.has(token)) continue;
-      if (!raw || typeof raw !== "object") continue;
-
-      const es = normalizeExecStatsFromKeyEntry(
-        token,
-        raw,
-        raw,
-        raw.discordId || raw.ownerDiscordId || null
-      );
-      if (!es) continue;
-
-      const canon = es.keyToken.toUpperCase();
-      if (!index[canon]) {
-        index[canon] = es;
-      } else {
-        const prev = index[canon];
-        const merged = Object.assign({}, prev);
-
-        if (
-          typeof es.totalExecutes === "number" &&
-          (typeof prev.totalExecutes !== "number" ||
-            es.totalExecutes > prev.totalExecutes)
-        ) {
-          merged.totalExecutes = es.totalExecutes;
+  // Fallback legacy: exhub:exec-users (array)
+  if (Object.keys(index).length === 0) {
+    try {
+      const rawLegacy = await kvExecGetRaw(EXEC_USERS_KEY);
+      if (rawLegacy && typeof rawLegacy === "string" && rawLegacy.trim()) {
+        let arr;
+        try {
+          arr = JSON.parse(rawLegacy);
+        } catch {
+          arr = null;
         }
-        if (es.lastIp && !prev.lastIp) {
-          merged.lastIp = es.lastIp;
-          merged.ip = es.lastIp;
+        if (Array.isArray(arr)) {
+          for (const entry of arr) {
+            addExecEntryToIndex(index, entry);
+          }
         }
-        if (Array.isArray(es.allMapList) && es.allMapList.length) {
-          merged.allMapList = es.allMapList;
-        }
-
-        index[canon] = merged;
       }
-    }
-  }
-
-  // ===== MODE 4: array of entries [{ keyToken, ... }, ...] =====
-  if (Array.isArray(snap)) {
-    for (const entry of snap) {
-      if (!entry || typeof entry !== "object") continue;
-      const token =
-        entry.keyToken || entry.token || entry.key || entry.keyId;
-      if (!token) continue;
-
-      const es = normalizeExecStatsFromKeyEntry(
-        token,
-        entry,
-        entry,
-        entry.discordId || entry.ownerDiscordId || null
+    } catch (err) {
+      console.warn(
+        "[serverv2] loadExecIndexByToken legacy snapshot error:",
+        err
       );
-      if (!es) continue;
-
-      const canon = es.keyToken.toUpperCase();
-      if (!index[canon]) {
-        index[canon] = es;
-      } else {
-        const prev = index[canon];
-        const merged = Object.assign({}, prev);
-
-        if (
-          typeof es.totalExecutes === "number" &&
-          (typeof prev.totalExecutes !== "number" ||
-            es.totalExecutes > prev.totalExecutes)
-        ) {
-          merged.totalExecutes = es.totalExecutes;
-        }
-        if (es.lastIp && !prev.lastIp) {
-          merged.lastIp = es.lastIp;
-          merged.ip = es.lastIp;
-        }
-        if (Array.isArray(es.allMapList) && es.allMapList.length) {
-          merged.allMapList = es.allMapList;
-        }
-
-        index[canon] = merged;
-      }
     }
   }
 
   return index;
 }
 
-// Normalisasi Paid key untuk admin-dashboarddiscord
+// ---------------------------------------------------------
+// Normalisasi Paid / Free key untuk admin-dashboarddiscord
+// ---------------------------------------------------------
+
 function normalizePaidKeyForAdmin(k, fallbackDiscordId) {
   if (!k) return null;
   const token = String(k.token || k.key || "");
@@ -1170,7 +1074,6 @@ function normalizePaidKeyForAdmin(k, fallbackDiscordId) {
   };
 }
 
-// Normalisasi Free key untuk admin-dashboarddiscord
 function normalizeFreeKeyForAdmin(fk, discordId) {
   if (!fk) return null;
   const token = fk.token;
@@ -2106,6 +2009,8 @@ module.exports = function mountDiscordOAuth(app) {
     if (hasFreeKeyKV) {
       try {
         execIndexByToken = await loadExecIndexByToken();
+        // optional: debug size
+        // console.log("[serverv2] execIndexByToken size:", Object.keys(execIndexByToken).length);
       } catch (err) {
         console.error("[serverv2] loadExecIndexByToken error:", err);
         execIndexByToken = {};
